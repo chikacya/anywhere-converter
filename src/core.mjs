@@ -1977,10 +1977,20 @@ function wrapLoonSurgeScript(source, parsed) {
   const phase = parsed.phase === 0 ? "request" : "response";
   const argument = String(parsed.argument || "");
   const timeoutMs = parsed.timeoutMs || 4500;
+  const binaryBodyMode = parsed.binaryBodyMode === true;
   return `async function process(ctx) {
   var __source = Anywhere.codec.utf8.decode(Anywhere.codec.base64.decode("${encodedSource}"));
+  var __binaryBodyMode = ${binaryBodyMode ? "true" : "false"};
+  function __bodyIn(value) {
+    if (!value) return new Uint8Array();
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    return value;
+  }
+  var __bodyBytes = __bodyIn(ctx.body);
   var __bodyText = "";
-  try { if (ctx.body) __bodyText = Anywhere.codec.utf8.decode(ctx.body); } catch (_) { __bodyText = ""; }
+  try { if (ctx.body && !__binaryBodyMode) __bodyText = Anywhere.codec.utf8.decode(ctx.body); } catch (_) { __bodyText = ""; }
   var __finished = false;
   var __resolveDone;
   var __donePromise = new Promise(function (resolve) { __resolveDone = resolve; });
@@ -2031,8 +2041,14 @@ function wrapLoonSurgeScript(source, parsed) {
     for (var key in headers) out[String(key).toLowerCase()] = String(headers[key]);
     return out;
   }
-  var $request = { url: ctx.url || "", method: ctx.method || "GET", headers: __headersObject(ctx.headers), body: __bodyText };
-  var $response = { status: ctx.status || 200, headers: __headersObject(ctx.headers), body: __bodyText };
+  function __bodyOut(value) {
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    return Anywhere.codec.utf8.encode(String(value == null ? "" : value));
+  }
+  var $request = { url: ctx.url || "", method: ctx.method || "GET", headers: __headersObject(ctx.headers), body: __binaryBodyMode ? __bodyBytes : __bodyText, bodyBytes: __bodyBytes };
+  var $response = { status: ctx.status || 200, statusCode: ctx.status || 200, headers: __headersObject(ctx.headers), body: __binaryBodyMode ? __bodyBytes : __bodyText, bodyBytes: __bodyBytes };
   var $environment = { system: "Anywhere", "surge-version": "0", "loon-version": "0" };
   var $loon = "Anywhere";
   var $argument = ${JSON.stringify(argument)};
@@ -2101,9 +2117,9 @@ function wrapLoonSurgeScript(source, parsed) {
       return;
     }
     if (value && Object.prototype.hasOwnProperty.call(value, "body")) {
-      ctx.body = value.body instanceof Uint8Array ? value.body : Anywhere.codec.utf8.encode(String(value.body == null ? "" : value.body));
-    } else if (typeof $response !== "undefined" && "${phase}" === "response" && $response.body !== __bodyText) {
-      ctx.body = Anywhere.codec.utf8.encode(String($response.body == null ? "" : $response.body));
+      ctx.body = __bodyOut(value.body);
+    } else if (typeof $response !== "undefined" && "${phase}" === "response" && (__binaryBodyMode ? $response.body !== __bodyBytes : $response.body !== __bodyText)) {
+      ctx.body = __bodyOut($response.body);
     }
     __finish();
   }
@@ -3065,8 +3081,12 @@ function parseKeyValueTokens(input) {
         i += 1;
       }
     } else {
-      while (i < input.length && !/[\s,]/.test(input[i])) {
-        value += input[i++];
+      while (i < input.length) {
+        const ch = input[i];
+        if (/\s/.test(ch)) break;
+        if (ch === "," && keyValueBoundary(input, i + 1)) break;
+        value += ch;
+        i += 1;
       }
     }
     out[key] = value;

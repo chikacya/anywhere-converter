@@ -592,6 +592,32 @@ hostname = api.example.com
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 
+test("preserves comma-separated script arguments after argument substitution", async () => {
+  const source = `
+#!name = Script Argument Array Mini
+[Argument]
+tab=switch, true
+useractivity=switch, false
+[Script]
+http-response ^https:\\/\\/api\\.example\\.com\\/config script-path=https://example.com/arg.js, requires-body=true, argument=[{tab},{useractivity}]
+[MITM]
+hostname = api.example.com
+`;
+  const result = await convertModuleAsync(source, {
+    fetchScripts: true,
+    fetchText: async () => "$done({ body: $argument })",
+  });
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const line = amrs.content.split("\n").find((item) => item.startsWith("1, 100,"));
+  const wrapped = Buffer.from(internals.parseCsv(line)[3], "base64").toString("utf8");
+  assert.match(wrapped, /var \$argument = "\[true,false\]"/);
+  assert.deepEqual(internals.parseKeyValueTokens("argument=[true,false], requires-body=true"), {
+    argument: "[true,false]",
+    "requires-body": "true",
+  });
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
 test("lifts simple JSON mutation scripts to native body-json", async () => {
   const source = `
 #!name = JS Lift JSON Mini
@@ -1008,6 +1034,32 @@ setTimeout(() => $done({ body: $response.body }), 200);
   const wrapped = Buffer.from(internals.parseCsv(line)[3], "base64").toString("utf8");
   assert.match(wrapped, /__setTimeout\(resolve, 10000\)/);
   assert.match(wrapped, /globalThis\.setTimeout = __setTimeout/);
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("binary body mode exposes response body as bytes and writes bytes back", async () => {
+  const source = `
+#!name = Binary Body Compat Mini
+[Script]
+http-response ^https:\\/\\/api\\.example\\.com\\/proto script-path=https://example.com/proto.js, requires-body=true, binary-body-mode=true
+[MITM]
+hostname = api.example.com
+`;
+  const result = await convertModuleAsync(source, {
+    fetchScripts: true,
+    fetchText: async () => `
+const bytes = $response.body;
+bytes[0] = 7;
+$done($response);
+`,
+  });
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const line = amrs.content.split("\n").find((item) => item.startsWith("1, 100,"));
+  const wrapped = Buffer.from(internals.parseCsv(line)[3], "base64").toString("utf8");
+  assert.match(wrapped, /var __binaryBodyMode = true/);
+  assert.match(wrapped, /body: __binaryBodyMode \? __bodyBytes : __bodyText/);
+  assert.match(wrapped, /ctx\.body = __bodyOut\(\$response\.body\)/);
+  assert(result.diagnostics.some((item) => item.code === "script-binary-sample-required"));
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 

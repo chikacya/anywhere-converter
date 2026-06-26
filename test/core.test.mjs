@@ -587,6 +587,8 @@ hostname = api.example.com
   assert.match(wrapped, /function Env/);
   assert.match(wrapped, /__donePromise/);
   assert.match(wrapped, /__pendingHttp/);
+  assert.match(wrapped, /function __setTimeout/);
+  assert.match(wrapped, /"setTimeout", "clearTimeout", "setInterval", "clearInterval"/);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 
@@ -1004,7 +1006,8 @@ setTimeout(() => $done({ body: $response.body }), 200);
   const amrs = result.files.find((file) => file.type === "amrs");
   const line = amrs.content.split("\n").find((item) => item.startsWith("1, 100,"));
   const wrapped = Buffer.from(internals.parseCsv(line)[3], "base64").toString("utf8");
-  assert.match(wrapped, /setTimeout\(resolve, 10000\)/);
+  assert.match(wrapped, /__setTimeout\(resolve, 10000\)/);
+  assert.match(wrapped, /globalThis\.setTimeout = __setTimeout/);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 

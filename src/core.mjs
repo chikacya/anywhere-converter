@@ -1985,6 +1985,42 @@ function wrapLoonSurgeScript(source, parsed) {
   var __resolveDone;
   var __donePromise = new Promise(function (resolve) { __resolveDone = resolve; });
   var __pendingHttp = 0;
+  var __timerSeed = 1;
+  var __timers = {};
+  var __nativeSetTimeout = typeof globalThis !== "undefined" && typeof globalThis.setTimeout === "function" ? globalThis.setTimeout.bind(globalThis) : null;
+  var __nativeClearTimeout = typeof globalThis !== "undefined" && typeof globalThis.clearTimeout === "function" ? globalThis.clearTimeout.bind(globalThis) : null;
+  var __nativeSetInterval = typeof globalThis !== "undefined" && typeof globalThis.setInterval === "function" ? globalThis.setInterval.bind(globalThis) : null;
+  var __nativeClearInterval = typeof globalThis !== "undefined" && typeof globalThis.clearInterval === "function" ? globalThis.clearInterval.bind(globalThis) : null;
+  function __setTimeout(callback, ms) {
+    if (__nativeSetTimeout) return __nativeSetTimeout(callback, ms);
+    var id = __timerSeed++;
+    __timers[id] = true;
+    Promise.resolve().then(function () {
+      if (!__timers[id]) return;
+      delete __timers[id];
+      if (typeof callback === "function") callback();
+    });
+    return id;
+  }
+  function __clearTimeout(id) { if (__nativeClearTimeout) return __nativeClearTimeout(id); delete __timers[id]; }
+  function __setInterval(callback, ms) {
+    if (__nativeSetInterval) return __nativeSetInterval(callback, ms);
+    var id = __timerSeed++;
+    __timers[id] = true;
+    Promise.resolve().then(function () {
+      if (__timers[id] && typeof callback === "function") callback();
+    });
+    return id;
+  }
+  function __clearInterval(id) { if (__nativeClearInterval) return __nativeClearInterval(id); delete __timers[id]; }
+  try {
+    if (typeof globalThis !== "undefined") {
+      if (typeof globalThis.setTimeout !== "function") globalThis.setTimeout = __setTimeout;
+      if (typeof globalThis.clearTimeout !== "function") globalThis.clearTimeout = __clearTimeout;
+      if (typeof globalThis.setInterval !== "function") globalThis.setInterval = __setInterval;
+      if (typeof globalThis.clearInterval !== "function") globalThis.clearInterval = __clearInterval;
+    }
+  } catch (_) {}
   function __headersObject(headers) {
     var out = {};
     if (!headers) return out;
@@ -2086,7 +2122,7 @@ function wrapLoonSurgeScript(source, parsed) {
       setjson: function (value, key) { return $persistentStore.write(JSON.stringify(value), key); },
       get: function (request, callback) { return $httpClient.get(request, callback); },
       post: function (request, callback) { return $httpClient.post(request, callback); },
-      wait: function (ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); },
+      wait: function (ms) { return new Promise(function (resolve) { __setTimeout(resolve, ms); }); },
       time: function (format) { return String(format || "").replace(/yyyy/g, new Date().getFullYear()).replace(/MM/g, String(new Date().getMonth() + 1).padStart(2, "0")).replace(/dd/g, String(new Date().getDate()).padStart(2, "0")).replace(/HH/g, String(new Date().getHours()).padStart(2, "0")).replace(/mm/g, String(new Date().getMinutes()).padStart(2, "0")).replace(/ss/g, String(new Date().getSeconds()).padStart(2, "0")); },
       queryStr: function (options) { var out = []; for (var key in options || {}) out.push(encodeURIComponent(key) + "=" + encodeURIComponent(options[key])); return out.join("&"); },
       msg: function () {},
@@ -2096,17 +2132,15 @@ function wrapLoonSurgeScript(source, parsed) {
     };
   }
   try {
-    var __returnValue = (new Function("$request", "$response", "$done", "$persistentStore", "$prefs", "$httpClient", "$task", "$argument", "$notification", "$notify", "$environment", "$loon", "$utils", "Env", __source))($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env);
+    var __returnValue = (new Function("$request", "$response", "$done", "$persistentStore", "$prefs", "$httpClient", "$task", "$argument", "$notification", "$notify", "$environment", "$loon", "$utils", "Env", "setTimeout", "clearTimeout", "setInterval", "clearInterval", __source))($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval);
     if (__returnValue && typeof __returnValue.then === "function") {
       Promise.resolve(__returnValue).catch(function (error) { Anywhere.log.error(String(error && error.stack || error)); });
     }
   } catch (error) {
     Anywhere.log.error(String(error && error.stack || error));
   }
-  await Promise.race([
-    __donePromise,
-    new Promise(function (resolve) { setTimeout(resolve, ${timeoutMs}); })
-  ]);
+  var __timeoutPromise = __nativeSetTimeout ? new Promise(function (resolve) { __setTimeout(resolve, ${timeoutMs}); }) : __donePromise;
+  await Promise.race([__donePromise, __timeoutPromise]);
   if (!__finished && __pendingHttp <= 0) __finish();
 }`;
 }

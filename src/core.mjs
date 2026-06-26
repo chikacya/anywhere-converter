@@ -1494,9 +1494,8 @@ function liftBodyReplaceScript(text) {
 }
 
 function liftJsonMutationScript(text) {
-  const parseMatch = text.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*JSON\.parse\s*\(\s*\$response\.body\s*\)\s*;?/);
-  if (!parseMatch) return [];
-  const variable = parseMatch[1];
+  const variable = findJsonParseVariable(text);
+  if (!variable) return [];
   if (!hasJsonBodyOutput(text, variable)) return [];
 
   return liftJsonMutationRulesFromText(text, variable);
@@ -1546,23 +1545,25 @@ function liftGuardedJsonBranchRules(source, parsed, { aggressive = false } = {})
   if (parsed.phase !== 1 || parsed.binaryBodyMode) return [];
   const text = stripJsComments(String(source || ""));
   if (!hasBodyCompletion(text)) return [];
-  const parseMatch = text.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*JSON\.parse\s*\(\s*\$response\.body\s*\)\s*;?/);
-  if (!parseMatch) return [];
-  const variable = parseMatch[1];
+  const variable = findJsonParseVariable(text);
+  if (!variable) return [];
   if (!hasJsonBodyOutput(text, variable)) return [];
   const stripped = stripJsStrings(text);
   if (/\b(?:fetch|XMLHttpRequest|eval|Function|importScripts|require)\b|\$httpClient\b|\$task\s*\.\s*fetch\b/.test(stripped)) return [];
 
   const rules = [];
+  const urlVariables = findRequestUrlVariables(text);
   for (const block of extractIfBlocks(text)) {
-    const branchPattern = urlGuardToPattern(block.condition, parsed.pattern);
+    const branchPattern = urlGuardToPattern(block.condition, parsed.pattern, urlVariables);
     if (!branchPattern) continue;
-    if (hasControlFlow(block.body) || /=>\s*\{/.test(stripJsStrings(block.body))) continue;
-    if (new RegExp(`\\b[A-Za-z_$][\\w$]*\\s*\\(\\s*${escapeRegExp(variable)}\\b`).test(stripJsStrings(block.body))) continue;
+    const strippedBody = stripJsStrings(block.body);
+    if (hasUnsafeBranchControlFlow(block.body) || /=>\s*\{/.test(strippedBody)) continue;
+    if (new RegExp(`\\b(?!if\\b)[A-Za-z_$][\\w$]*\\s*\\(\\s*${escapeRegExp(variable)}\\b`).test(stripJsStrings(block.body))) continue;
     if (new RegExp(`\\b${escapeRegExp(variable)}\\s*=`).test(stripJsStrings(block.body))) continue;
-    const branchRules = aggressive
+    let branchRules = aggressive
       ? liftAggressiveJsonMutationRulesFromText(block.body, variable)
       : liftJsonMutationRulesFromText(block.body, variable);
+    if (/\bif\b/.test(strippedBody)) branchRules = branchRules.filter((rule) => rule.fields[0] === "delete");
     for (const rule of branchRules) {
       rules.push({ ...rule, pattern: branchPattern });
     }
@@ -1573,9 +1574,8 @@ function liftGuardedJsonBranchRules(source, parsed, { aggressive = false } = {})
 function liftAggressiveScriptToNativeRules(source, parsed) {
   if (parsed.phase !== 1 || parsed.binaryBodyMode) return [];
   const text = stripJsComments(String(source || ""));
-  const parseMatch = text.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*JSON\.parse\s*\(\s*\$response\.body\s*\)\s*;?/);
-  if (!parseMatch) return [];
-  const variable = parseMatch[1];
+  const variable = findJsonParseVariable(text);
+  if (!variable) return [];
   if (!hasBodyCompletion(text) || !hasJsonBodyOutput(text, variable)) return [];
   const stripped = stripJsStrings(text);
   if (/\b(?:fetch|XMLHttpRequest|eval|Function|importScripts|require)\b|\$httpClient\b|\$task\s*\.\s*fetch\b/.test(stripped)) return [];
@@ -1648,23 +1648,74 @@ function findMatchingParen(text, openIndex) {
   return -1;
 }
 
-function urlGuardToPattern(condition, basePattern) {
-  const text = String(condition || "").trim();
-  let match = text.match(/\$request\.url\s*\.\s*includes\s*\(\s*(["'][^"']+["'])\s*\)/);
-  if (match) return intersectUrlPattern(basePattern, escapeRegExp(unquote(match[1])));
+function findJsonParseVariable(text) {
+  const direct = text.match(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*JSON\.parse\s*\(\s*\$response\.body\s*\)\s*;?/);
+  if (direct) return direct[1];
+  const aliasPattern = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\$response\.body\s*;?/g;
+  for (const alias of text.matchAll(aliasPattern)) {
+    const parsed = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*JSON\\.parse\\s*\\(\\s*${escapeRegExp(alias[1])}\\s*\\)\\s*;?`).exec(text);
+    if (parsed) return parsed[1];
+  }
+  return "";
+}
 
-  match = text.match(/\$request\.url\s*\.\s*indexOf\s*\(\s*(["'][^"']+["'])\s*\)\s*(!==|!=|>=|>)\s*(-?1|0)/);
-  if (match && ((/!?==/.test(match[2]) && match[3] === "-1") || (/^>=?$/.test(match[2]) && match[3] === "0"))) {
-    return intersectUrlPattern(basePattern, escapeRegExp(unquote(match[1])));
+function findRequestUrlVariables(text) {
+  const variables = ["\\$request\\.url"];
+  const aliasPattern = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\$request\.url\s*;?/g;
+  for (const match of text.matchAll(aliasPattern)) variables.push(escapeRegExp(match[1]));
+  return variables;
+}
+
+function urlGuardToPattern(condition, basePattern, urlVariables = ["\\$request\\.url"]) {
+  const text = String(condition || "").trim();
+  const urlRef = `(?:${urlVariables.join("|")})`;
+  let match = text.match(new RegExp(`${urlRef}\\s*\\.\\s*includes\\s*\\(\\s*(["'][^"']+["'])\\s*\\)`));
+  if (match) {
+    const literal = unquote(match[1]);
+    if (!urlGuardLikelyOverlapsBase(basePattern, literal)) return "";
+    return intersectUrlPattern(basePattern, escapeRegExp(literal));
   }
 
-  match = text.match(/\/((?:\\\/|[^/])+)\/([a-z]*)\s*\.\s*test\s*\(\s*\$request\.url\s*\)/);
+  match = text.match(new RegExp(`${urlRef}\\s*\\.\\s*indexOf\\s*\\(\\s*(["'][^"']+["'])\\s*\\)\\s*(!==|!=|>=|>)\\s*(-?1|0)`));
+  if (match && ((/!?==/.test(match[2]) && match[3] === "-1") || (/^>=?$/.test(match[2]) && match[3] === "0"))) {
+    const literal = unquote(match[1]);
+    if (!urlGuardLikelyOverlapsBase(basePattern, literal)) return "";
+    return intersectUrlPattern(basePattern, escapeRegExp(literal));
+  }
+
+  match = text.match(new RegExp(`/((?:\\\\/|[^/])+)/([a-z]*)\\s*\\.\\s*test\\s*\\(\\s*${urlRef}\\s*\\)`));
   if (match && !(match[2] || "")) return intersectUrlPattern(basePattern, match[1].replaceAll("\\/", "/"));
 
-  match = text.match(/\$request\.url\s*\.\s*match\s*\(\s*\/((?:\\\/|[^/])+)\/([a-z]*)\s*\)/);
+  match = text.match(new RegExp(`${urlRef}\\s*\\.\\s*match\\s*\\(\\s*/((?:\\\\/|[^/])+)/([a-z]*)\\s*\\)`));
   if (match && !(match[2] || "")) return intersectUrlPattern(basePattern, match[1].replaceAll("\\/", "/"));
 
   return "";
+}
+
+function urlGuardLikelyOverlapsBase(basePattern, guardLiteral) {
+  const guard = String(guardLiteral || "");
+  if (!guard.startsWith("/")) return true;
+  const guardSegment = firstLiteralPathSegment(guard);
+  if (!guardSegment) return true;
+  const baseSegment = firstLiteralPathSegment(normalizeRegexPathForOverlap(basePattern));
+  if (!baseSegment) return true;
+  return guardSegment === baseSegment || guard.includes(`/${baseSegment}`) || normalizeRegexPathForOverlap(basePattern).includes(`/${guardSegment}`);
+}
+
+function firstLiteralPathSegment(value) {
+  const text = String(value || "");
+  const pathStart = text.startsWith("/") ? 0 : text.indexOf("://") >= 0 ? text.indexOf("/", text.indexOf("://") + 3) : text.indexOf("/");
+  if (pathStart < 0) return "";
+  const rest = text.slice(pathStart + 1);
+  const match = rest.match(/^([A-Za-z0-9_$-]+)/);
+  return match ? match[1] : "";
+}
+
+function normalizeRegexPathForOverlap(pattern) {
+  return String(pattern || "")
+    .replace(/\\\//g, "/")
+    .replace(/\\([.?+*()[\]{}|^-])/g, "$1")
+    .replace(/\(\?:/g, "(");
 }
 
 function intersectUrlPattern(basePattern, guardPattern) {
@@ -1900,6 +1951,10 @@ function stripJsStrings(source) {
 
 function hasControlFlow(source) {
   return /\b(?:if|for|while|switch|catch|function)\b/.test(stripJsStrings(source));
+}
+
+function hasUnsafeBranchControlFlow(source) {
+  return /\b(?:for|while|switch|catch|function)\b/.test(stripJsStrings(source));
 }
 
 function jsonPathFromJsAccess(access) {

@@ -765,6 +765,105 @@ $done({ body: JSON.stringify(obj) });
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 
+test("lifts guarded JSON scripts with request url and response body aliases", async () => {
+  const source = `
+#!name = JS Lift Alias Mini
+[Script]
+http-response ^https:\\/\\/api\\.example\\.com\\/feed script-path=https://example.com/alias.js, requires-body=true
+[MITM]
+hostname = api.example.com
+`;
+  const result = await convertModuleAsync(source, {
+    fetchScripts: true,
+    fetchText: async () => `
+const url = $request.url;
+let responseBody = $response.body;
+let obj = JSON.parse(responseBody);
+if (url.includes("/feed")) {
+  obj.data.rows = obj.data.rows.filter(item => item.model_type !== "ads");
+  delete obj.data.banner;
+}
+$done({ body: JSON.stringify(obj) });
+`,
+  });
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const bodyJsonLines = amrs.content.split("\n").filter((line) => line.startsWith("1, 5,"));
+  assert.equal(bodyJsonLines.length, 2);
+  const fields = bodyJsonLines.map((line) => internals.parseCsv(line).slice(3));
+  assert.deepEqual(fields, [
+    ["remove-where-field-in", "$.data.rows", "model_type", "[\"ads\"]"],
+    ["delete", "$.data.banner"],
+  ]);
+  assert(result.diagnostics.some((item) => item.code === "script-native-lift"));
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("does not lift unrelated guarded URL branches onto concrete patterns", async () => {
+  const source = `
+#!name = JS Lift Branch Overlap Mini
+[Script]
+http-response ^https:\\/\\/api\\.example\\.com\\/feed script-path=https://example.com/branch-overlap.js, requires-body=true
+[MITM]
+hostname = api.example.com
+`;
+  const result = await convertModuleAsync(source, {
+    fetchScripts: true,
+    fetchText: async () => `
+const url = $request.url;
+const obj = JSON.parse($response.body);
+if (url.includes("/feed")) {
+  delete obj.data.banner;
+}
+if (url.includes("/vip")) {
+  delete obj.data.card;
+}
+$done({ body: JSON.stringify(obj) });
+`,
+  });
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const bodyJsonLines = amrs.content.split("\n").filter((line) => line.startsWith("1, 5,"));
+  assert.equal(bodyJsonLines.length, 1);
+  assert.deepEqual(internals.parseCsv(bodyJsonLines[0]).slice(3), ["delete", "$.data.banner"]);
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("lifts guarded existence deletes without lifting conditional assignments", async () => {
+  const source = `
+#!name = JS Lift Guarded Delete Mini
+[Script]
+http-response ^https:\\/\\/api\\.example\\.com\\/util\\/update script-path=https://example.com/guarded-delete.js, requires-body=true
+[MITM]
+hostname = api.example.com
+`;
+  const result = await convertModuleAsync(source, {
+    fetchScripts: true,
+    fetchText: async () => `
+const url = $request.url;
+let obj = JSON.parse($response.body);
+if (url.includes("/util/update") && obj.data) {
+  if (obj.data.ad_black_list) {
+    delete obj.data.ad_black_list;
+  }
+  if (obj.data.operation_float) {
+    delete obj.data.operation_float;
+  }
+  if (obj.data.flag) {
+    obj.data.enabled = true;
+  }
+}
+$done({ body: JSON.stringify(obj) });
+`,
+  });
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const bodyJsonLines = amrs.content.split("\n").filter((line) => line.startsWith("1, 5,"));
+  const fields = bodyJsonLines.map((line) => internals.parseCsv(line).slice(3));
+  assert.deepEqual(fields, [
+    ["delete", "$.data.ad_black_list"],
+    ["delete", "$.data.operation_float"],
+  ]);
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
 test("compat mode lifts statically guarded JSON branch mutations", async () => {
   const source = `
 #!name = JS Guarded Branch Mini

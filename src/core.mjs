@@ -2027,12 +2027,74 @@ function wrapLoonSurgeScript(source, parsed) {
     return id;
   }
   function __clearInterval(id) { if (__nativeClearInterval) return __nativeClearInterval(id); delete __timers[id]; }
+  function __URLSearchParamsShim(search) {
+    this.__pairs = [];
+    var text = String(search || "");
+    if (text.charAt(0) === "?") text = text.slice(1);
+    if (!text) return;
+    var parts = text.split("&");
+    for (var i = 0; i < parts.length; i++) {
+      if (!parts[i]) continue;
+      var at = parts[i].indexOf("=");
+      var key = at >= 0 ? parts[i].slice(0, at) : parts[i];
+      var value = at >= 0 ? parts[i].slice(at + 1) : "";
+      this.__pairs.push([decodeURIComponent(key.replace(/\\+/g, " ")), decodeURIComponent(value.replace(/\\+/g, " "))]);
+    }
+  }
+  __URLSearchParamsShim.prototype.get = function (key) {
+    key = String(key);
+    for (var i = 0; i < this.__pairs.length; i++) if (this.__pairs[i][0] === key) return this.__pairs[i][1];
+    return null;
+  };
+  __URLSearchParamsShim.prototype.has = function (key) {
+    key = String(key);
+    for (var i = 0; i < this.__pairs.length; i++) if (this.__pairs[i][0] === key) return true;
+    return false;
+  };
+  __URLSearchParamsShim.prototype.set = function (key, value) {
+    key = String(key);
+    for (var i = 0; i < this.__pairs.length; i++) {
+      if (this.__pairs[i][0] === key) {
+        this.__pairs[i][1] = String(value);
+        return;
+      }
+    }
+    this.__pairs.push([key, String(value)]);
+  };
+  __URLSearchParamsShim.prototype.append = function (key, value) { this.__pairs.push([String(key), String(value)]); };
+  __URLSearchParamsShim.prototype.toString = function () {
+    var out = [];
+    for (var i = 0; i < this.__pairs.length; i++) out.push(encodeURIComponent(this.__pairs[i][0]) + "=" + encodeURIComponent(this.__pairs[i][1]));
+    return out.join("&");
+  };
+  var __NativeURL = typeof globalThis !== "undefined" && typeof globalThis.URL === "function" ? globalThis.URL : null;
+  var __NativeURLSearchParams = typeof globalThis !== "undefined" && typeof globalThis.URLSearchParams === "function" ? globalThis.URLSearchParams : null;
+  function __URLShim(input) {
+    if (__NativeURL) return new __NativeURL(input);
+    var raw = String(input || "");
+    var match = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*:)?\\/\\/([^/?#]*)([^?#]*)(\\?[^#]*)?(#.*)?$/);
+    var authority = match ? match[2] : "";
+    var hostParts = authority.split("@").pop().split(":");
+    this.href = raw;
+    this.protocol = match && match[1] ? match[1] : "";
+    this.host = authority;
+    this.hostname = hostParts[0] || "";
+    this.port = hostParts.length > 1 ? hostParts.slice(1).join(":") : "";
+    this.pathname = match ? (match[3] || "/") : raw.split(/[?#]/, 1)[0] || "";
+    this.search = match && match[4] ? match[4] : (raw.indexOf("?") >= 0 ? "?" + raw.split("?")[1].split("#")[0] : "");
+    this.hash = match && match[5] ? match[5] : (raw.indexOf("#") >= 0 ? "#" + raw.split("#")[1] : "");
+    this.origin = this.protocol && authority ? this.protocol + "//" + authority : "";
+    this.searchParams = new (__NativeURLSearchParams || __URLSearchParamsShim)(this.search);
+  }
+  __URLShim.prototype.toString = function () { return this.href; };
   try {
     if (typeof globalThis !== "undefined") {
       if (typeof globalThis.setTimeout !== "function") globalThis.setTimeout = __setTimeout;
       if (typeof globalThis.clearTimeout !== "function") globalThis.clearTimeout = __clearTimeout;
       if (typeof globalThis.setInterval !== "function") globalThis.setInterval = __setInterval;
       if (typeof globalThis.clearInterval !== "function") globalThis.clearInterval = __clearInterval;
+      if (typeof globalThis.URL !== "function") globalThis.URL = __URLShim;
+      if (typeof globalThis.URLSearchParams !== "function") globalThis.URLSearchParams = __URLSearchParamsShim;
     }
   } catch (_) {}
   function __headersObject(headers) {
@@ -2152,7 +2214,7 @@ function wrapLoonSurgeScript(source, parsed) {
     };
   }
   try {
-    var __returnValue = (new Function("$request", "$response", "$done", "$persistentStore", "$prefs", "$httpClient", "$task", "$argument", "$notification", "$notify", "$environment", "$loon", "$utils", "Env", "setTimeout", "clearTimeout", "setInterval", "clearInterval", __source))($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval);
+    var __returnValue = (new Function("$request", "$response", "$done", "$persistentStore", "$prefs", "$httpClient", "$task", "$argument", "$notification", "$notify", "$environment", "$loon", "$utils", "Env", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "URL", "URLSearchParams", __source))($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval, __NativeURL || __URLShim, __NativeURLSearchParams || __URLSearchParamsShim);
     if (__returnValue && typeof __returnValue.then === "function") {
       Promise.resolve(__returnValue).catch(function (error) { Anywhere.log.error(String(error && error.stack || error)); });
     }

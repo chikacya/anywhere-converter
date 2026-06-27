@@ -294,6 +294,43 @@ test("parses argument labels descriptions and select options", () => {
   assert.equal(selectArg.desc, "选择输出等级");
 });
 
+test("parses Surge metadata arguments and triple placeholders", () => {
+  const source = `
+#!name=Reven
+#!arguments=Mock:"https://mock.example/reven"
+[URL Rewrite]
+^https:\\/\\/api\\.revenuecat\\.com\\/(.+)$ {{{Mock}}}/$1 header
+[MITM]
+hostname = api.revenuecat.com
+`;
+  const result = convertModule(source);
+  assert.equal(result.argumentDefinitions.Mock.defaultValue, "https://mock.example/reven");
+  assert.equal(result.arguments.Mock, "https://mock.example/reven");
+  const amrs = result.files.find((file) => file.type === "amrs");
+  assert.match(amrs.content, /https:\/\/mock\.example\/reven\/\$1/);
+  assert.doesNotMatch(amrs.content, /\{\{\{Mock\}\}\}/);
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("parses metadata argument descriptions and lets section arguments override", () => {
+  const source = `
+#!name = Metadata Arguments Mini
+#!arguments=日志级别:info, enabled:false, Mode:auto
+#!arguments-desc=日志级别: 输出等级\\nenabled: 总开关
+[Argument]
+enabled = switch,true,false,tag=启用,desc=覆盖头部简写
+[URL Rewrite]
+^https:\\/\\/api\\.example\\.com\\/{{日志级别}}/{Mode} reject
+`;
+  const result = convertModule(source);
+  assert.equal(result.argumentDefinitions["日志级别"].defaultValue, "info");
+  assert.equal(result.argumentDefinitions["日志级别"].desc, "输出等级");
+  assert.equal(result.argumentDefinitions.enabled.defaultValue, true);
+  assert.equal(result.argumentDefinitions.enabled.desc, "覆盖头部简写");
+  const amrs = result.files.find((file) => file.type === "amrs");
+  assert.match(amrs.content, /\/info\/auto/);
+});
+
 test("argument substitution avoids regex quantifiers", () => {
   const item = { section: "Rewrite", text: "^https://a.test/202\\d{5}/{path} reject", raw: "", line: 1 };
   const resolved = internals.resolveItemArguments(item, { path: "ad" });

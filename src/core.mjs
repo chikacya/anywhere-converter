@@ -478,14 +478,59 @@ function parseArgumentLine(line, rawLine = "", lineNumber = 0) {
   };
 }
 
+function parseMetadataArguments(rawArguments = "", rawDescriptions = "") {
+  const args = {};
+  const descriptions = parseMetadataArgumentDescriptions(rawDescriptions);
+  for (const field of parseCsv(String(rawArguments || ""))) {
+    const split = splitFirst(field, ":");
+    if (!split) continue;
+    const name = stripWrappingQuotes(split[0].trim());
+    if (!name || /[{}]/.test(name)) continue;
+    const rawDefault = stripWrappingQuotes(split[1].trim());
+    const type = /^(?:true|false)$/i.test(rawDefault) ? "switch" : "string";
+    args[name] = {
+      name,
+      type,
+      defaultValue: normalizeArgumentValueForType(rawDefault, type),
+      options: type === "switch" ? [true, false] : [],
+      tag: name,
+      desc: descriptions[name] || "",
+      raw: field,
+      line: 0,
+    };
+  }
+  return args;
+}
+
+function parseMetadataArgumentDescriptions(rawDescriptions = "") {
+  const out = {};
+  const text = String(rawDescriptions || "").replaceAll("\\n", "\n");
+  for (const line of text.split("\n")) {
+    const split = splitFirst(line.trim(), ":");
+    if (!split) continue;
+    const name = stripWrappingQuotes(split[0].trim());
+    if (name) out[name] = split[1].trim();
+  }
+  return out;
+}
+
+function stripWrappingQuotes(value) {
+  const text = String(value ?? "").trim();
+  if (text.length >= 2 && ((text[0] === '"' && text.at(-1) === '"') || (text[0] === "'" && text.at(-1) === "'"))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
 function resolveArgumentValues(argumentDefinitions = {}, overrides = {}) {
   const out = {};
   for (const [name, definition] of Object.entries(argumentDefinitions || {})) {
     out[name] = definition.defaultValue;
   }
   for (const [name, value] of Object.entries(overrides || {})) {
-    if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name)) continue;
-    out[name] = argumentDefinitions?.[name]
+    const hasDefinition = Object.prototype.hasOwnProperty.call(argumentDefinitions || {}, name);
+    if (!hasDefinition && !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(name)) continue;
+    out[name] = hasDefinition
       ? normalizeArgumentValueForType(value, argumentDefinitions[name].type)
       : normalizeArgumentValue(value);
   }
@@ -510,7 +555,8 @@ function resolveItemArguments(item, argumentValues) {
 }
 
 function substituteArguments(value, argumentValues) {
-  return String(value || "").replace(/\{([A-Za-z_][A-Za-z0-9_-]*)\}/g, (match, name) => {
+  return String(value || "").replace(/\{\{\{([^{}]+)\}\}\}|\{\{([^{}]+)\}\}|\{([A-Za-z_][A-Za-z0-9_-]*)\}/g, (match, tripleName, doubleName, singleName) => {
+    const name = (tripleName || doubleName || singleName || "").trim();
     if (!Object.prototype.hasOwnProperty.call(argumentValues, name)) return match;
     return String(argumentValues[name]);
   });
@@ -593,7 +639,8 @@ export function parseModule(source) {
 
   const name = metadata.name || metadata.title || "";
   if (name) metadata.name = name;
-  return { metadata, hostnames, arguments: args, items, diagnostics };
+  const metadataArguments = parseMetadataArguments(metadata.arguments, metadata["arguments-desc"]);
+  return { metadata, hostnames, arguments: { ...metadataArguments, ...args }, items, diagnostics };
 }
 
 export function parseRuleSet(source) {

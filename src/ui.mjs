@@ -19,6 +19,7 @@ export function renderHome() {
       --red: #b42318;
       --violet: #6544c6;
       --code: #101820;
+      --shadow: rgba(23, 32, 42, .18);
       --radius: 8px;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
@@ -35,6 +36,7 @@ export function renderHome() {
       --red: #ff7c72;
       --violet: #a995ff;
       --code: #060a0f;
+      --shadow: rgba(0, 0, 0, .32);
     }
     * { box-sizing: border-box; }
     body {
@@ -65,8 +67,11 @@ export function renderHome() {
       grid-template-columns: minmax(240px, 1fr) auto;
       align-items: center;
       gap: 16px;
-      padding: 8px 0 16px;
-      border-bottom: 2px solid var(--ink);
+      padding: 16px;
+      border: 2px solid var(--ink);
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--paper) 92%, transparent);
+      box-shadow: 5px 5px 0 var(--shadow);
     }
     h1 {
       margin: 0;
@@ -84,22 +89,27 @@ export function renderHome() {
       line-height: 1.5;
       font-size: 14px;
     }
-    .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-    .health {
+    .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .top-link {
       display: inline-grid;
       grid-auto-flow: column;
       align-items: center;
       gap: 8px;
-      min-height: 32px;
-      padding: 0 10px;
+      min-height: 38px;
+      padding: 0 12px;
       border: 1px solid var(--ink);
       border-radius: 999px;
       background: var(--paper);
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 900;
       white-space: nowrap;
       text-decoration: none;
+      color: var(--ink);
+      box-shadow: 2px 2px 0 rgba(23, 32, 42, .1);
     }
+    body[data-theme="dark"] .top-link { box-shadow: 2px 2px 0 rgba(0, 0, 0, .24); }
+    .top-link:hover, .btn:hover:not(:disabled), .file-link:hover { transform: translateY(-1px); }
+    .top-link svg { width: 15px; height: 15px; }
     .health::before {
       content: "";
       width: 8px;
@@ -107,15 +117,34 @@ export function renderHome() {
       border-radius: 50%;
       background: var(--teal);
     }
+    .github-link { color: var(--ink); }
     .theme-toggle {
       width: 38px;
+      height: 38px;
       min-height: 38px;
       padding: 0;
       border-radius: 50%;
+      position: relative;
+      overflow: hidden;
     }
+    .theme-toggle .moon,
+    .theme-toggle .sun {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      line-height: 0;
+    }
+    .theme-toggle .moon svg,
+    .theme-toggle .sun svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+    .theme-toggle .moon svg { transform: translate(.5px, -.25px); }
     .theme-toggle .sun { display: none; }
     body[data-theme="dark"] .theme-toggle .moon { display: none; }
-    body[data-theme="dark"] .theme-toggle .sun { display: block; }
+    body[data-theme="dark"] .theme-toggle .sun { display: grid; }
     .workspace {
       display: grid;
       grid-template-columns: minmax(360px, 1.05fr) minmax(340px, .95fr);
@@ -127,7 +156,7 @@ export function renderHome() {
       border: 2px solid var(--ink);
       border-radius: var(--radius);
       background: var(--paper);
-      box-shadow: 5px 5px 0 rgba(23, 32, 42, .18);
+      box-shadow: 5px 5px 0 var(--shadow);
       min-width: 0;
     }
     .panel-head {
@@ -331,9 +360,9 @@ export function renderHome() {
       flex: 0 0 38px;
     }
     .btn svg { width: 16px; height: 16px; flex: 0 0 auto; }
+    .btn.theme-toggle svg { width: 18px; height: 18px; }
     .btn.primary { background: var(--blueprint); color: white; border-color: var(--blueprint); }
     .btn:disabled { opacity: .58; cursor: wait; }
-    .btn:hover:not(:disabled), .file-link:hover { transform: translateY(-1px); }
     .result-strip {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -550,7 +579,8 @@ export function renderHome() {
         <p class="subtitle">把 Loon / Surge 插件、模块、脚本和规则集转换为 Anywhere 可导入的 .amrs / .arrs。</p>
       </div>
       <div class="header-actions">
-        <a class="health" id="health" href="https://anywhere-hub.chikacya.indevs.in/" target="_blank" rel="noopener">Anywhere Hub</a>
+        <a class="top-link health" id="health" href="https://anywhere-hub.chikacya.indevs.in/" target="_blank" rel="noopener">Anywhere Hub</a>
+        <a class="top-link github-link" href="https://github.com/chikacya/anywhere-converter" target="_blank" rel="noopener" title="访问 GitHub 源工程">${icon("github")}GitHub</a>
         <button class="btn theme-toggle" id="theme-toggle" type="button" title="切换深色模式" aria-label="切换深色模式">
           <span class="moon">${icon("moon")}</span>
           <span class="sun">${icon("sun")}</span>
@@ -1596,6 +1626,7 @@ $done({ body: JSON.stringify(obj) });\`;
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4a1 1 0 0 1-1-1V4h11a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     sliders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M2 14h4M10 8h4M18 16h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    github: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 0 1.6 1.1 1.6 1.1.9 1.5 2.4 1.1 2.9.8.1-.7.4-1.1.7-1.4-2.2-.3-4.6-1.1-4.6-5a3.9 3.9 0 0 1 1-2.7c-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .6 1.4.2 2.4.1 2.7a3.9 3.9 0 0 1 1 2.7c0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.8V21c0 .3.2.6.7.5A10 10 0 0 0 12 2z" fill="currentColor"/></svg>',
     moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 7 7 0 1 0 20 15.5z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
   };

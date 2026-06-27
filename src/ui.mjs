@@ -77,6 +77,13 @@ export function renderHome() {
       letter-spacing: 0;
       font-weight: 800;
     }
+    .subtitle {
+      margin: 10px 0 0;
+      max-width: 760px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 14px;
+    }
     .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
     .health {
       display: inline-grid;
@@ -314,6 +321,15 @@ export function renderHome() {
       font-weight: 900;
       cursor: pointer;
     }
+    .btn.theme-toggle {
+      width: 38px;
+      height: 38px;
+      min-width: 38px;
+      min-height: 38px;
+      padding: 0;
+      border-radius: 999px;
+      flex: 0 0 38px;
+    }
     .btn svg { width: 16px; height: 16px; flex: 0 0 auto; }
     .btn.primary { background: var(--blueprint); color: white; border-color: var(--blueprint); }
     .btn:disabled { opacity: .58; cursor: wait; }
@@ -531,6 +547,7 @@ export function renderHome() {
     <header>
       <div>
         <h1>Anywhere-converter</h1>
+        <p class="subtitle">把 Loon / Surge 插件、模块、脚本和规则集转换为 Anywhere 可导入的 .amrs / .arrs。</p>
       </div>
       <div class="header-actions">
         <a class="health" id="health" href="https://anywhere-hub.chikacya.indevs.in/" target="_blank" rel="noopener">Anywhere Hub</a>

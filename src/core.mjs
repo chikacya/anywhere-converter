@@ -2060,6 +2060,10 @@ function wrapLoonSurgeScript(source, parsed) {
   var __nativeClearTimeout = typeof globalThis !== "undefined" && typeof globalThis.clearTimeout === "function" ? globalThis.clearTimeout.bind(globalThis) : null;
   var __nativeSetInterval = typeof globalThis !== "undefined" && typeof globalThis.setInterval === "function" ? globalThis.setInterval.bind(globalThis) : null;
   var __nativeClearInterval = typeof globalThis !== "undefined" && typeof globalThis.clearInterval === "function" ? globalThis.clearInterval.bind(globalThis) : null;
+  var __NativeTextEncoder = typeof globalThis !== "undefined" && typeof globalThis.TextEncoder === "function" ? globalThis.TextEncoder : null;
+  var __NativeTextDecoder = typeof globalThis !== "undefined" && typeof globalThis.TextDecoder === "function" ? globalThis.TextDecoder : null;
+  var __nativeAtob = typeof globalThis !== "undefined" && typeof globalThis.atob === "function" ? globalThis.atob.bind(globalThis) : null;
+  var __nativeBtoa = typeof globalThis !== "undefined" && typeof globalThis.btoa === "function" ? globalThis.btoa.bind(globalThis) : null;
   function __setTimeout(callback, ms) {
     if (__nativeSetTimeout) return __nativeSetTimeout(callback, ms);
     var id = __timerSeed++;
@@ -2082,6 +2086,29 @@ function wrapLoonSurgeScript(source, parsed) {
     return id;
   }
   function __clearInterval(id) { if (__nativeClearInterval) return __nativeClearInterval(id); delete __timers[id]; }
+  function __TextEncoderShim() {}
+  __TextEncoderShim.prototype.encode = function (value) {
+    return Anywhere.codec.utf8.encode(String(value == null ? "" : value));
+  };
+  function __TextDecoderShim() {}
+  __TextDecoderShim.prototype.decode = function (value) {
+    return Anywhere.codec.utf8.decode(__bodyIn(value));
+  };
+  function __atobShim(value) {
+    var bytes = Anywhere.codec.base64.decode(String(value == null ? "" : value));
+    var out = "";
+    for (var i = 0; i < bytes.length; i += 8192) {
+      var chunk = bytes.subarray(i, i + 8192);
+      out += String.fromCharCode.apply(null, Array.prototype.slice.call(chunk));
+    }
+    return out;
+  }
+  function __btoaShim(value) {
+    var text = String(value == null ? "" : value);
+    var bytes = new Uint8Array(text.length);
+    for (var i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 255;
+    return Anywhere.codec.base64.encode(bytes);
+  }
   function __URLSearchParamsShim(search) {
     this.__pairs = [];
     var text = String(search || "");
@@ -2150,6 +2177,10 @@ function wrapLoonSurgeScript(source, parsed) {
       if (typeof globalThis.clearInterval !== "function") globalThis.clearInterval = __clearInterval;
       if (typeof globalThis.URL !== "function") globalThis.URL = __URLShim;
       if (typeof globalThis.URLSearchParams !== "function") globalThis.URLSearchParams = __URLSearchParamsShim;
+      if (typeof globalThis.TextEncoder !== "function") globalThis.TextEncoder = __TextEncoderShim;
+      if (typeof globalThis.TextDecoder !== "function") globalThis.TextDecoder = __TextDecoderShim;
+      if (typeof globalThis.atob !== "function") globalThis.atob = __atobShim;
+      if (typeof globalThis.btoa !== "function") globalThis.btoa = __btoaShim;
     }
   } catch (_) {}
   function __headersObject(headers) {
@@ -2269,7 +2300,7 @@ function wrapLoonSurgeScript(source, parsed) {
     };
   }
   try {
-    var __returnValue = (new Function("$request", "$response", "$done", "$persistentStore", "$prefs", "$httpClient", "$task", "$argument", "$notification", "$notify", "$environment", "$loon", "$utils", "Env", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "URL", "URLSearchParams", __source))($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval, __NativeURL || __URLShim, __NativeURLSearchParams || __URLSearchParamsShim);
+    var __returnValue = (new Function("$request", "$response", "$done", "$persistentStore", "$prefs", "$httpClient", "$task", "$argument", "$notification", "$notify", "$environment", "$loon", "$utils", "Env", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "URL", "URLSearchParams", "TextEncoder", "TextDecoder", "atob", "btoa", __source))($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval, __NativeURL || __URLShim, __NativeURLSearchParams || __URLSearchParamsShim, __NativeTextEncoder || __TextEncoderShim, __NativeTextDecoder || __TextDecoderShim, __nativeAtob || __atobShim, __nativeBtoa || __btoaShim);
     if (__returnValue && typeof __returnValue.then === "function") {
       Promise.resolve(__returnValue).catch(function (error) { Anywhere.log.error(String(error && error.stack || error)); });
     }

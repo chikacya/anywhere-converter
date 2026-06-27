@@ -613,8 +613,11 @@ hostname = api.example.com
   assert.match(wrapped, /__pendingHttp/);
   assert.match(wrapped, /function __setTimeout/);
   assert.match(wrapped, /function __URLShim/);
+  assert.match(wrapped, /function __TextDecoderShim/);
+  assert.match(wrapped, /function __atobShim/);
   assert.match(wrapped, /"setTimeout", "clearTimeout", "setInterval", "clearInterval"/);
   assert.match(wrapped, /"URL", "URLSearchParams"/);
+  assert.match(wrapped, /"TextEncoder", "TextDecoder", "atob", "btoa"/);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 

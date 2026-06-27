@@ -12,6 +12,16 @@ const ROUTING_TYPES = {
 };
 
 const MITM_OPS = new Set([0, 1, 2, 3, 4, 5, 100, 101]);
+const FRAMING_HEADERS = new Set([
+  "content-length",
+  "transfer-encoding",
+  "connection",
+  "keep-alive",
+  "proxy-connection",
+  "upgrade",
+  "te",
+  "trailer",
+]);
 const BODY_JSON_ACTIONS = new Set([
   "add",
   "replace",
@@ -122,7 +132,10 @@ export function convertModule(source, options = {}) {
     case "Rewrite":
     case "URL Rewrite": {
       const mapped = convertRewriteLine(item);
-      if (mapped) {
+      if (mapped?.kind === "skip") {
+        skipped += 1;
+        addDiagnostic(mapped.level || "warning", mapped.code, mapped.message, item.line, item.raw);
+      } else if (mapped) {
         addMitmMapped(mapped, item.line, item.raw);
       } else {
         skipped += 1;
@@ -155,7 +168,10 @@ export function convertModule(source, options = {}) {
     }
     case "Header Rewrite": {
       const mapped = convertHeaderRewriteLine(item);
-      if (mapped) {
+      if (mapped?.kind === "skip") {
+        skipped += 1;
+        addDiagnostic(mapped.level || "warning", mapped.code, mapped.message, item.line, item.raw);
+      } else if (mapped) {
         addMitmMapped(mapped, item.line, item.raw);
       } else {
         skipped += 1;
@@ -1108,10 +1124,7 @@ function convertHeaderRewriteLine(item) {
   const action = parts[2].toLowerCase();
   const name = parts[3];
   const value = parts.slice(4).join(" ");
-  if (action === "add" || action === "header-add") return { phase, op: 1, pattern: urlGate(pattern), fields: [name, value] };
-  if (action === "delete" || action === "del" || action === "header-delete" || action === "header-del") return { phase, op: 2, pattern: urlGate(pattern), fields: [name] };
-  if (action === "replace" || action === "set" || action === "header-replace" || action === "header-set") return { phase, op: 3, pattern: urlGate(pattern), fields: [name, value] };
-  return null;
+  return headerRuleFromParts(phase, pattern, action, name, value);
 }
 
 function convertScriptLine(item, options) {
@@ -2739,10 +2752,24 @@ function headerRuleFromAction(pattern, action, parts) {
   const phase = phaseText === "response" ? 1 : 0;
   const name = parts[0];
   const value = parts.slice(1).join(" ");
+  return headerRuleFromParts(phase, pattern, opText, name, value);
+}
+
+function headerRuleFromParts(phase, pattern, action, name, value = "") {
   if (!name) return null;
-  if (opText === "add") return { phase, op: 1, pattern: urlGate(pattern), fields: [name, value] };
-  if (opText === "del" || opText === "delete") return { phase, op: 2, pattern: urlGate(pattern), fields: [name] };
-  if (opText === "replace" || opText === "set") return { phase, op: 3, pattern: urlGate(pattern), fields: [name, value] };
+  const normalizedAction = String(action || "").toLowerCase();
+  const lowerName = String(name).toLowerCase();
+  if (["add", "header-add", "replace", "set", "header-replace", "header-set"].includes(normalizedAction) && FRAMING_HEADERS.has(lowerName)) {
+    return {
+      kind: "skip",
+      level: "warning",
+      code: "unsupported-framing-header-set",
+      message: `Anywhere 不允许通过 header add/replace 设置 ${name}；该类 framing/hop-by-hop header 会被运行时丢弃。`,
+    };
+  }
+  if (normalizedAction === "add" || normalizedAction === "header-add") return { phase, op: 1, pattern: urlGate(pattern), fields: [name, value] };
+  if (normalizedAction === "del" || normalizedAction === "delete" || normalizedAction === "header-delete" || normalizedAction === "header-del") return { phase, op: 2, pattern: urlGate(pattern), fields: [name] };
+  if (normalizedAction === "replace" || normalizedAction === "set" || normalizedAction === "header-replace" || normalizedAction === "header-set") return { phase, op: 3, pattern: urlGate(pattern), fields: [name, value] };
   return null;
 }
 

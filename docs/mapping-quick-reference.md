@@ -66,16 +66,16 @@ Status:
 
 | Loon/Surge | Anywhere | Status | Notes |
 | --- | --- | --- | --- |
-| `request-header-add name value` | `0, 1, pattern, name, value` | stable | Native header add. |
+| `request-header-add name value` | `0, 1, pattern, name, value` | stable | Native header add. Framing/hop-by-hop headers such as `content-length` and `connection` are skipped because Anywhere rejects setting them. |
 | `request-header-del name` | `0, 2, pattern, name` | stable | Native header delete. |
-| `request-header-replace name value` | `0, 3, pattern, name, value` | stable | Native header replace. |
+| `request-header-replace name value` | `0, 3, pattern, name, value` | stable | Native header replace. Framing/hop-by-hop headers are skipped for the same reason as add. |
 | response variants | phase `1` | stable | Same operation IDs. |
 
 ## Body Rewrite
 
 | Loon/Surge | Anywhere | Status | Notes |
 | --- | --- | --- | --- |
-| `response-body-replace-regex search replacement` | `1, 4, pattern, search, replacement` | stable | Replacement is literal; capture expansion is not guaranteed. |
+| `response-body-replace-regex search replacement` | `1, 4, pattern, search, replacement` | stable | Replacement may use `$1` / `${10}` capture templates; Anywhere expands them natively. |
 | `"list":\[.+\] -> "list":[]` | `replace-recursive list []` | stable | Generic JSON-array cleanup heuristic. |
 | `response-body-json-del a.b` | `1, 5, pattern, delete, $.a.b` | stable | Loose path to JSONPath. |
 | `response-body-json-replace a true` | `1, 5, pattern, replace, $.a, true` | stable | Value kept as JSON literal/text. |

@@ -1334,6 +1334,7 @@ $done({ body: JSON.stringify(obj) });\`;
         "unsupported-body-rewrite": "不支持的 Body Rewrite",
         "unsupported-header-rewrite": "不支持的 Header Rewrite",
         "unsupported-url-regex-action": "不支持的 URL-REGEX 动作",
+        "unsupported-framing-header-set": "不支持设置传输头",
         "argument-disabled": "参数已禁用",
         "unsupported-argument": "不支持的参数",
         "outside-section": "忽略非配置段内容",

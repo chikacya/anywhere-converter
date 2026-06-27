@@ -511,6 +511,23 @@ hostname = mobile.yangkeduo.com
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 
+test("preserves body replace capture templates for Anywhere native expansion", () => {
+  const result = convertModule(`
+#!name = Body Replace Capture Mini
+[Rewrite]
+^https:\\/\\/api\\.example\\.com\\/date$ response-body-replace-regex (\\d{4})-(\\d{2})-(\\d{2}) $3/$2/$1
+[MITM]
+hostname = api.example.com
+`);
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const line = amrs.content.split("\n").find((item) => item.startsWith("1, 4,"));
+  assert(line);
+  const fields = internals.parseCsv(line);
+  assert.equal(fields[3], "(\\d{4})-(\\d{2})-(\\d{2})");
+  assert.equal(fields[4], "$3/$2/$1");
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
 test("converts header rewrite actions", () => {
   const result = convertModule(`
 #!name = Header Mini
@@ -526,6 +543,28 @@ hostname = api.example.com, grpc.example.com
   assert.match(amrs.content, /if-none-match/);
   assert.match(amrs.content, /1, 1, \^https/);
   assert.match(amrs.content, /grpc-status, 0/);
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("skips framing header add or replace while allowing delete", () => {
+  const result = convertModule(`
+#!name = Framing Header Mini
+[Header Rewrite]
+http-request ^https:\\/\\/api\\.example\\.com\\/v1 add content-length 0
+http-request ^https:\\/\\/api\\.example\\.com\\/v1 header-add proxy-connection keep-alive
+http-request ^https:\\/\\/api\\.example\\.com\\/v1 delete transfer-encoding
+[Rewrite]
+^https:\\/\\/api\\.example\\.com\\/v2 request-header-replace connection close
+[MITM]
+hostname = api.example.com
+`);
+  const amrs = result.files.find((file) => file.type === "amrs");
+  assert(!amrs.content.includes("content-length, 0"));
+  assert(!amrs.content.includes("proxy-connection, keep-alive"));
+  assert(!amrs.content.includes("connection, close"));
+  assert.match(amrs.content, /^0, 2, \^https:\/\/api\\\.example\\\.com\/v1, transfer-encoding$/m);
+  assert.equal(result.report.skipped, 3);
+  assert.equal(result.diagnostics.filter((item) => item.code === "unsupported-framing-header-set").length, 3);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 

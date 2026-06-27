@@ -4,7 +4,7 @@ export function renderHome() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Anywhere 插件转换器</title>
+  <title>Anywhere-converter</title>
   <style>
     :root {
       color-scheme: light;
@@ -22,6 +22,20 @@ export function renderHome() {
       --radius: 8px;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
+    body[data-theme="dark"] {
+      color-scheme: dark;
+      --ink: #dce8f3;
+      --muted: #9fb1c2;
+      --line: #344456;
+      --panel: #121b25;
+      --paper: #0c131b;
+      --blueprint: #7da2ff;
+      --teal: #46c2bf;
+      --amber: #d09242;
+      --red: #ff7c72;
+      --violet: #a995ff;
+      --code: #060a0f;
+    }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -33,6 +47,12 @@ export function renderHome() {
       background-size: 28px 28px;
       color: var(--ink);
     }
+    body[data-theme="dark"] {
+      background:
+        linear-gradient(90deg, rgba(125, 162, 255, .1) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(70, 194, 191, .07) 1px, transparent 1px),
+        #071019;
+    }
     button, input, textarea, select { font: inherit; }
     a { color: var(--blueprint); text-decoration-thickness: 1px; text-underline-offset: 3px; }
     .shell {
@@ -43,7 +63,7 @@ export function renderHome() {
     header {
       display: grid;
       grid-template-columns: minmax(240px, 1fr) auto;
-      align-items: end;
+      align-items: center;
       gap: 16px;
       padding: 8px 0 16px;
       border-bottom: 2px solid var(--ink);
@@ -57,13 +77,7 @@ export function renderHome() {
       letter-spacing: 0;
       font-weight: 800;
     }
-    .subtitle {
-      margin: 10px 0 0;
-      max-width: 760px;
-      color: var(--muted);
-      line-height: 1.55;
-      font-size: 14px;
-    }
+    .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
     .health {
       display: inline-grid;
       grid-auto-flow: column;
@@ -77,6 +91,7 @@ export function renderHome() {
       font-size: 12px;
       font-weight: 700;
       white-space: nowrap;
+      text-decoration: none;
     }
     .health::before {
       content: "";
@@ -85,6 +100,15 @@ export function renderHome() {
       border-radius: 50%;
       background: var(--teal);
     }
+    .theme-toggle {
+      width: 38px;
+      min-height: 38px;
+      padding: 0;
+      border-radius: 50%;
+    }
+    .theme-toggle .sun { display: none; }
+    body[data-theme="dark"] .theme-toggle .moon { display: none; }
+    body[data-theme="dark"] .theme-toggle .sun { display: block; }
     .workspace {
       display: grid;
       grid-template-columns: minmax(360px, 1.05fr) minmax(340px, .95fr);
@@ -109,6 +133,7 @@ export function renderHome() {
       border-bottom: 1px solid var(--line);
       background: #f3f7fb;
     }
+    body[data-theme="dark"] .panel-head { background: #101a24; }
     .panel-title {
       margin: 0;
       font-size: 13px;
@@ -128,6 +153,11 @@ export function renderHome() {
       color: var(--ink);
       outline: none;
     }
+    body[data-theme="dark"] input,
+    body[data-theme="dark"] textarea,
+    body[data-theme="dark"] select {
+      border-color: #425368;
+    }
     input, select { height: 38px; padding: 0 10px; }
     textarea {
       min-height: 430px;
@@ -144,14 +174,23 @@ export function renderHome() {
       box-shadow: 0 0 0 3px rgba(37, 84, 215, .16);
     }
     .switchline {
-      display: flex;
-      align-items: center;
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      align-items: start;
       gap: 9px;
-      min-height: 38px;
+      min-height: 44px;
       color: var(--ink);
       font-weight: 800;
     }
-    .switchline input { width: 18px; height: 18px; accent-color: var(--blueprint); }
+    .switchline input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--blueprint); }
+    .switch-copy { display: grid; gap: 2px; min-width: 0; }
+    .switch-copy span { font-size: 12px; }
+    .switch-copy small {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
     .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .script-recovery {
       display: grid;
@@ -160,6 +199,11 @@ export function renderHome() {
       border-radius: 6px;
       padding: 10px;
       background: #f8fbfd;
+    }
+    body[data-theme="dark"] .script-recovery,
+    body[data-theme="dark"] .argument-config {
+      background: #101a24;
+      border-color: #425368;
     }
     .argument-config {
       display: grid;
@@ -468,7 +512,7 @@ export function renderHome() {
     .error { color: var(--red); font-weight: 800; }
     @media (max-width: 980px) {
       .workspace, header { grid-template-columns: 1fr; }
-      .health { justify-self: start; }
+      .header-actions { justify-content: flex-start; }
       .result-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       textarea, .preview { min-height: 330px; max-height: none; }
     }
@@ -486,10 +530,15 @@ export function renderHome() {
   <div class="shell">
     <header>
       <div>
-        <h1>Anywhere 插件转换器</h1>
-        <p class="subtitle">把 Loon / Surge 模块或规则集转换成 Anywhere 可导入的 .amrs / .arrs。这个本地 demo 走 Worker 同款 API，适合验证 M5 的实际操作体验。</p>
+        <h1>Anywhere-converter</h1>
       </div>
-      <div class="health" id="health">local worker</div>
+      <div class="header-actions">
+        <a class="health" id="health" href="https://anywhere-hub.chikacya.indevs.in/" target="_blank" rel="noopener">Anywhere Hub</a>
+        <button class="btn theme-toggle" id="theme-toggle" type="button" title="切换深色模式" aria-label="切换深色模式">
+          <span class="moon">${icon("moon")}</span>
+          <span class="sun">${icon("sun")}</span>
+        </button>
+      </div>
     </header>
 
     <main class="workspace">
@@ -537,11 +586,17 @@ export function renderHome() {
             </div>
             <label class="switchline">
               <input type="checkbox" name="fetchScripts" value="true" checked>
-              下载并保留远程脚本
+              <span class="switch-copy">
+                <span>下载并保留远程脚本</span>
+                <small>下载 script-path 指向的 JS；能识别的会转成原生规则，其余用兼容层保留。</small>
+              </span>
             </label>
             <label class="switchline">
               <input type="checkbox" name="aggressive" value="true">
-              增强 JS 原生化
+              <span class="switch-copy">
+                <span>增强 JS 原生化</span>
+                <small>尝试提升更多静态 JSON 清理脚本；二进制、动态逻辑仍会保留或标记需验证。</small>
+              </span>
             </label>
             <div class="script-recovery">
               <div class="script-recovery-head">
@@ -614,6 +669,7 @@ export function renderHome() {
     const explainEl = document.querySelector("#explain");
     const diagnosticsEl = document.querySelector("#diagnostics");
     const healthEl = document.querySelector("#health");
+    const themeToggle = document.querySelector("#theme-toggle");
     const metrics = {
       converted: document.querySelector("#converted"),
       skipped: document.querySelector("#skipped"),
@@ -625,6 +681,16 @@ export function renderHome() {
     let activeDiagnosticFilter = "action";
     let inspectTimer = 0;
     let cacheBustValue = "";
+
+    const savedTheme = localStorage.getItem("anywhere-converter-theme");
+    const initialTheme = savedTheme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    setTheme(initialTheme);
+
+    themeToggle.addEventListener("click", () => {
+      const next = document.body.dataset.theme === "dark" ? "light" : "dark";
+      localStorage.setItem("anywhere-converter-theme", next);
+      setTheme(next);
+    });
 
     const sampleSource = String.raw\`#!name=Demo Ad Cleanup
 #!desc=最小转换示例
@@ -807,10 +873,16 @@ $done({ body: JSON.stringify(obj) });\`;
     });
 
     fetch("/health").then((res) => res.json()).then((json) => {
-      healthEl.textContent = json.ok ? "local worker ready" : "local worker";
+      healthEl.title = json.ok ? "Worker ready · 打开 Anywhere Hub" : "打开 Anywhere Hub";
     }).catch(() => {
-      healthEl.textContent = "health unavailable";
+      healthEl.title = "Worker health unavailable · 打开 Anywhere Hub";
     });
+
+    function setTheme(theme) {
+      document.body.dataset.theme = theme === "dark" ? "dark" : "light";
+      themeToggle.title = theme === "dark" ? "切换浅色模式" : "切换深色模式";
+      themeToggle.setAttribute("aria-label", themeToggle.title);
+    }
 
     function renderResult(json) {
       const summary = json.summary || {};
@@ -1499,6 +1571,8 @@ $done({ body: JSON.stringify(obj) });\`;
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4a1 1 0 0 1-1-1V4h11a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     sliders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M2 14h4M10 8h4M18 16h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 7 7 0 1 0 20 15.5z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
   };
     return icons[name] || "";
   }

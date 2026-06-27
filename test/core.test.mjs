@@ -340,7 +340,19 @@ hostname = api.revenuecat.com, api.rc-backup.com
   const fields = internals.parseCsv(line);
   assert.equal(fields[3], "0");
   assert.equal(fields[4], "https://mock.example/reven/$1/$2");
+  assert(result.diagnostics.some((item) => item.code === "cross-host-transparent-rewrite" && item.message.includes("mock.example")));
   assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("same-host transparent rewrite does not warn about upstream routing", () => {
+  const result = convertModule(`
+#!name = Same Host Rewrite Mini
+[URL Rewrite]
+^https:\\/\\/api\\.example\\.com\\/old\\/(.*)$ https://api.example.com/new/$1 header
+[MITM]
+hostname = api.example.com
+`);
+  assert(!result.diagnostics.some((item) => item.code === "cross-host-transparent-rewrite"));
 });
 
 test("converts capture redirect rewrites to native redirect templates", () => {

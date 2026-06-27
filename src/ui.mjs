@@ -1339,6 +1339,7 @@ $done({ body: JSON.stringify(obj) });\`;
         "outside-section": "忽略非配置段内容",
         "domain-exact-degraded": "域名匹配已放宽",
         "logical-and-degraded": "组合条件已放宽",
+        "cross-host-transparent-rewrite": "跨域透明改写",
         "complex-hostname-wildcard": "复杂 hostname 已跳过",
         "map-local-script-response": "Map Local 保留响应信息",
         "map-local-native-trivial-header": "Map Local 已原生化",

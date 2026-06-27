@@ -42,6 +42,7 @@ export function convertModule(source, options = {}) {
   const routingGroups = new Map();
   const inferredHosts = new Set();
   const headerPreprocess = new Set();
+  const crossHostRewriteTargets = new Set();
   let converted = 0;
   let skipped = 0;
 
@@ -63,7 +64,19 @@ export function convertModule(source, options = {}) {
     mitmRules.push(rule);
     converted += 1;
     if (rule.degraded) addDiagnostic("warning", rule.degraded.code, rule.degraded.message, line, sourceLine);
-    for (const host of extractHostsFromPattern(rule.pattern)) inferredHosts.add(host);
+    const sourceHosts = extractHostsFromPattern(rule.pattern);
+    for (const host of sourceHosts) inferredHosts.add(host);
+    const targetHost = transparentRewriteTargetHost(rule);
+    if (targetHost && !sourceHosts.includes(targetHost) && !crossHostRewriteTargets.has(targetHost)) {
+      crossHostRewriteTargets.add(targetHost);
+      addDiagnostic(
+        "warning",
+        "cross-host-transparent-rewrite",
+        `透明 URL rewrite 会把上游连接改到 ${targetHost}；请确保该域名在 Anywhere 路由中可连接或会走可用代理，否则实机可能出现 502 upstream connect failed。`,
+        line,
+        sourceLine,
+      );
+    }
     if (isHighRiskPattern(rule.pattern)) {
       addDiagnostic("warning", "sample-required-pattern", "命中高频或 protobuf 风险路径，建议实机样本验证。", line, sourceLine);
     }
@@ -2762,6 +2775,18 @@ function rejectContentForAction(rawAction = "", pattern = "") {
 
 function hasCaptureReference(value) {
   return /\$(?:\d|\{\d+\})/.test(String(value || ""));
+}
+
+function transparentRewriteTargetHost(rule) {
+  if (!rule || rule.phase !== 0 || rule.op !== 0 || rule.fields?.[0] !== "0") return "";
+  const target = String(rule.fields?.[1] || "").trim();
+  if (!target) return "";
+  try {
+    const url = new URL(target);
+    return (url.hostname || "").toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function requestCaptureRedirectScriptRule(pattern, targetTemplate, status = 302) {

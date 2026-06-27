@@ -1161,10 +1161,17 @@ $done({ body: JSON.stringify(obj) });\`;
       const filters = [
         ["action", "需处理"],
         ["review", "需验证"],
-        ["script", "脚本"],
+        ["script", "脚本诊断"],
         ["degraded", "语义放宽"],
         ["all", "全部"],
       ];
+      const filterHints = {
+        action: "需要补全源码或人工处理的诊断。",
+        review: "建议实机验证的诊断。",
+        script: "脚本相关诊断数量，不等于已下载脚本数。",
+        degraded: "转换时发生语义放宽的说明。",
+        all: "全部诊断。",
+      };
       const counts = Object.fromEntries(filters.map(([key]) => [key, countDiagnostics(entries, key)]));
       if (!counts[activeDiagnosticFilter]) activeDiagnosticFilter = counts.action ? "action" : counts.review ? "review" : counts.script ? "script" : counts.degraded ? "degraded" : "all";
 
@@ -1176,6 +1183,7 @@ $done({ body: JSON.stringify(obj) });\`;
         button.type = "button";
         button.className = "diag-tab" + (activeDiagnosticFilter === key ? " active" : "");
         button.textContent = label + " " + counts[key];
+        button.title = filterHints[key] || "";
         button.addEventListener("click", () => {
           activeDiagnosticFilter = key;
           renderDiagnostics(json);

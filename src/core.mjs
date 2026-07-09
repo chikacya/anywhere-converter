@@ -12,6 +12,8 @@ const ROUTING_TYPES = {
 };
 
 const MITM_OPS = new Set([0, 1, 2, 3, 4, 5, 100, 101]);
+const MAX_AMRS_RULES_PER_FILE = 10000;
+const MAX_ARRS_RULES_PER_FILE = 100000;
 const FRAMING_HEADERS = new Set([
   "content-length",
   "transfer-encoding",
@@ -223,12 +225,7 @@ export function convertModule(source, options = {}) {
 
   for (const [groupName, group] of routingGroups) {
     if (!group.rules.length) continue;
-    files.push({
-      name: filenameFromName(`${name}_${groupName}`, ".arrs"),
-      type: "arrs",
-      content: emitArrs(`${name} ${groupName}`, group.routing, group.rules),
-      ruleCount: group.rules.length,
-    });
+    appendArrsFiles(files, `${name}_${groupName}`, `${name} ${groupName}`, group.routing, group.rules, diagnostics);
   }
 
   const report = buildReport({ converted, skipped, files, diagnostics });
@@ -445,12 +442,8 @@ export function convertRuleSet(source, options = {}) {
     group.rules = dedupeRoutingRules(group.rules);
     if (!group.rules.length) continue;
     const suffix = group.routing === defaultRouting ? "" : `_${groupName}`;
-    files.push({
-      name: filenameFromName(`${name}${suffix}`, ".arrs"),
-      type: "arrs",
-      content: emitArrs(name, group.routing, group.rules),
-      ruleCount: group.rules.length,
-    });
+    const displayName = group.routing === defaultRouting ? name : `${name} ${groupName}`;
+    appendArrsFiles(files, `${name}${suffix}`, displayName, group.routing, group.rules, diagnostics);
   }
 
   const report = buildReport({ converted, skipped, files, diagnostics });
@@ -982,12 +975,46 @@ export function emitArrs(name, routing, rules) {
   return lines.join("\n").trimEnd() + "\n";
 }
 
+function appendArrsFiles(files, fileBaseName, displayName, routing, rules, diagnostics = []) {
+  const chunks = chunkRules(rules, MAX_ARRS_RULES_PER_FILE);
+  if (chunks.length > 1) {
+    diagnostics.push({
+      level: "info",
+      code: "arrs-rule-limit-split",
+      message: `ARRS 规则数 ${rules.length} 超过 Anywhere 单个自定义规则集上限 ${MAX_ARRS_RULES_PER_FILE}，已自动拆分为 ${chunks.length} 个文件。`,
+      line: 0,
+      source: "",
+    });
+  }
+  chunks.forEach((chunk, index) => {
+    const numbered = chunks.length > 1;
+    const suffix = numbered ? `_${String(index + 1).padStart(2, "0")}` : "";
+    const titleSuffix = numbered ? ` ${String(index + 1).padStart(2, "0")}` : "";
+    files.push({
+      name: filenameFromName(`${fileBaseName}${suffix}`, ".arrs"),
+      type: "arrs",
+      content: emitArrs(`${displayName}${titleSuffix}`, routing, chunk),
+      ruleCount: chunk.length,
+    });
+  });
+}
+
+function chunkRules(rules, maxRules) {
+  if (!Array.isArray(rules) || rules.length <= maxRules) return [rules || []];
+  const chunks = [];
+  for (let index = 0; index < rules.length; index += maxRules) {
+    chunks.push(rules.slice(index, index + maxRules));
+  }
+  return chunks;
+}
+
 export function validateAnywhereOutput(file) {
   const diagnostics = [];
   const lines = String(file.content || "").replace(/\r\n?/g, "\n").split("\n");
   const isAmrs = file.name?.endsWith(".amrs") || file.type === "amrs";
   const isArrs = file.name?.endsWith(".arrs") || file.type === "arrs";
   let amrsSection = "rule";
+  let ruleCount = 0;
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i].trim();
     if (!raw || raw.startsWith("#") || raw.startsWith("//")) continue;
@@ -1013,10 +1040,18 @@ export function validateAnywhereOutput(file) {
     if (isAmrs) {
       const result = amrsSection === "parameter" ? validateAmrsParameterLine(raw) : validateAmrsRuleLine(raw);
       if (result) diagnostics.push({ ...result, line: i + 1 });
+      else if (amrsSection === "rule") ruleCount += 1;
     } else if (isArrs) {
       const result = validateArrsRuleLine(raw);
       if (result) diagnostics.push({ ...result, line: i + 1 });
+      else ruleCount += 1;
     }
+  }
+  if (isAmrs && ruleCount > MAX_AMRS_RULES_PER_FILE) {
+    diagnostics.push({ level: "error", code: "amrs-rule-limit-exceeded", line: 0, message: `AMRS 单文件规则数 ${ruleCount} 超过 Anywhere 上限 ${MAX_AMRS_RULES_PER_FILE}。` });
+  }
+  if (isArrs && ruleCount > MAX_ARRS_RULES_PER_FILE) {
+    diagnostics.push({ level: "error", code: "arrs-rule-limit-exceeded", line: 0, message: `ARRS 单文件规则数 ${ruleCount} 超过 Anywhere 上限 ${MAX_ARRS_RULES_PER_FILE}。` });
   }
   return diagnostics;
 }
@@ -2596,6 +2631,18 @@ function wrapLoonSurgeScript(source, parsed) {
     if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     return Anywhere.codec.utf8.encode(String(value == null ? "" : value));
   }
+  var __responseGrowthCapBytes = 65535;
+  var __originalBodyLength = ctx.body && typeof ctx.body.length === "number" ? ctx.body.length : -1;
+  function __setBodyIfWithinCap(bytes) {
+    if ("${phase}" === "response" && __originalBodyLength >= 0 && bytes && bytes.length > __originalBodyLength + __responseGrowthCapBytes) return false;
+    ctx.body = bytes;
+    return true;
+  }
+  function __finishUnchanged() {
+    if (__finished) return;
+    __finished = true;
+    __resolveDone();
+  }
   var $request = { url: ctx.url || "", method: ctx.method || "GET", headers: __headersObject(ctx.headers), body: __binaryBodyMode ? __bodyBytes : __bodyText, bodyBytes: __bodyBytes };
   var $response = { status: ctx.status || 200, statusCode: ctx.status || 200, headers: __headersObject(ctx.headers), body: __binaryBodyMode ? __bodyBytes : __bodyText, bodyBytes: __bodyBytes };
   var $environment = { system: "Anywhere", "surge-version": "0", "loon-version": "0" };
@@ -2698,9 +2745,15 @@ ${argumentHelper}  var $argument = ${argumentExpression};
       return;
     }
     if (value && Object.prototype.hasOwnProperty.call(value, "body")) {
-      ctx.body = __bodyOut(value.body);
+      if (!__setBodyIfWithinCap(__bodyOut(value.body))) {
+        __finishUnchanged();
+        return;
+      }
     } else if (typeof $response !== "undefined" && "${phase}" === "response" && (__binaryBodyMode ? $response.body !== __bodyBytes : $response.body !== __bodyText)) {
-      ctx.body = __bodyOut($response.body);
+      if (!__setBodyIfWithinCap(__bodyOut($response.body))) {
+        __finishUnchanged();
+        return;
+      }
     }
     __finish();
   }
@@ -2981,7 +3034,9 @@ function jsonOpsScript(ops) {
   }
 
   if (!changed) return;
-  ctx.body = Anywhere.codec.utf8.encode(JSON.stringify(obj));
+  var outBody = Anywhere.codec.utf8.encode(JSON.stringify(obj));
+  if (ctx.body && outBody.length > ctx.body.length + 65535) return;
+  ctx.body = outBody;
   Anywhere.done();
 }`;
 }

@@ -42,6 +42,19 @@ IP-CIDR, 1.2.3.0/24, no-resolve
   assert.deepEqual(validateAnywhereOutput(arrs), []);
 });
 
+test("splits large arrs outputs at Anywhere custom rule limit", () => {
+  const rules = Array.from({ length: 100001 }, (_, index) => `DOMAIN-SUFFIX, ads${index}.example.com`).join("\n");
+  const result = convertRuleSet(`# NAME: Huge Ads\n${rules}`, { ruleSetRouting: "reject" });
+  const arrsFiles = result.files.filter((file) => file.type === "arrs");
+  assert.equal(arrsFiles.length, 2);
+  assert.deepEqual(arrsFiles.map((file) => file.name), ["Huge_Ads_01.arrs", "Huge_Ads_02.arrs"]);
+  assert.deepEqual(arrsFiles.map((file) => file.ruleCount), [100000, 1]);
+  assert.match(arrsFiles[0].content, /name = Huge Ads 01/);
+  assert.match(arrsFiles[1].content, /name = Huge Ads 02/);
+  assert(result.diagnostics.some((item) => item.code === "arrs-rule-limit-split"));
+  for (const file of arrsFiles) assert.deepEqual(validateAnywhereOutput(file), []);
+});
+
 test("auto-detects yaml and domain-set style rule sets", () => {
   const result = convertAny(`
 payload:
@@ -623,6 +636,7 @@ hostname = api.example.com
   assert.match(generated, /remove-array-where-nested-field-in/);
   assert.match(generated, /filter-child-array-regex-not/);
   assert.match(generated, /keep-array-field-in/);
+  assert.match(generated, /outBody\.length > ctx\.body\.length \+ 65535/);
   assert(result.diagnostics.some((item) => item.code === "script-dispatcher-merged"));
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
@@ -1573,7 +1587,9 @@ $done($response);
   const wrapped = Buffer.from(internals.parseCsv(line)[3], "base64").toString("utf8");
   assert.match(wrapped, /var __binaryBodyMode = true/);
   assert.match(wrapped, /body: __binaryBodyMode \? __bodyBytes : __bodyText/);
-  assert.match(wrapped, /ctx\.body = __bodyOut\(\$response\.body\)/);
+  assert.match(wrapped, /var __responseGrowthCapBytes = 65535/);
+  assert.match(wrapped, /__originalBodyLength >= 0/);
+  assert.match(wrapped, /__setBodyIfWithinCap\(__bodyOut\(\$response\.body\)\)/);
   assert(result.diagnostics.some((item) => item.code === "script-binary-sample-required"));
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });

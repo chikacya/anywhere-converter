@@ -37,6 +37,7 @@ Status:
 | Loon/Surge rule set | Anywhere | Status | Notes |
 | --- | --- | --- | --- |
 | `DOMAIN-SUFFIX,x` with `ruleSetRouting=reject` | `2, x`, `routing = 2` | stable | Standalone rule sets often omit policy; the selected rule-set routing supplies it. |
+| large `.arrs` output | multiple `.arrs` files | stable | Routing rule files are split at 100,000 rules to stay under Anywhere's custom rule-set import/subscription limit. |
 | `DOMAIN-SUFFIX,x` with `ruleSetRouting=direct` | `2, x`, `routing = 1` | stable | Same parser, different Anywhere initial routing. |
 | `DOMAIN-SUFFIX,x` with `ruleSetRouting=default` | `2, x`, `routing = 0` | stable | Useful when the user wants the imported set to keep default handling. |
 | `example.com`, `+.example.com`, `*.example.com` | `DOMAIN-SUFFIX,example.com` -> `.arrs` | partial | Domain-set shorthand is treated as suffix matching. |
@@ -85,6 +86,7 @@ Status:
 | jq `.items |= map(select(.x != "ad"))` | `remove-where-field-in $.items x ["ad"]` | stable | Single field blacklist, including `and` for the same field. |
 | jq `.items |= map(select(has("ad") | not))` | `remove-where-key-exists $.items ad` | stable | Single array path only. |
 | complex jq `map(select(...))` | script or skipped | partial | Nested arrays, regex `test`, startswith, keep-only logic, and multi-field predicates need scripts/samples. |
+| generated response script body growth | guarded passthrough | stable | Anywhere HTTP/2 response rewrite drops bodies that grow more than 65,535 bytes over the original body and logs `response grew over cap`; generated scripts skip the body commit in that case so the original response passes through cleanly. |
 
 ## Map Local
 
@@ -112,6 +114,7 @@ Status:
 | binary/protobuf script | wrapped, flagged | sample-required | See protobuf strategy. |
 | likely SSE / NDJSON / gRPC / stream response script | `op 100` compat layer + `script-buffered-stream-risk` | sample-required | Anywhere has native `op 101 stream-script`, but Loon/Surge response scripts usually expect whole-body `$response.body`. The generic converter warns instead of changing execution granularity. |
 | body-rule `Accept-Encoding` handling | native runtime clamp/decode | stable | Anywhere clamps only matching body-accessing requests and auto-decodes `gzip` / `deflate` / `br`; the converter does not emit synthetic `accept-encoding: identity` preprocess rules. |
+| compat `$done({ body })` response growth | guarded passthrough | stable | If the converted output is more than 65,535 bytes larger than `ctx.body`, the wrapper resolves without `Anywhere.done()` so Anywhere keeps the original body instead of triggering the HTTP/2 growth cap fallback. |
 
 ## Arguments
 

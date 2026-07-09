@@ -22,7 +22,7 @@ Anywhere-converter 是一个通用的 Loon / Surge 插件、模块、JavaScript 
 ### 功能
 
 - Loon / Surge 模块、插件转换为 Anywhere MITM 规则 `.amrs`
-- Loon / Surge 规则集转换为 Anywhere 路由规则 `.arrs`
+- Loon / Surge 规则集转换为 Anywhere 路由规则 `.arrs`，超过 Anywhere 单文件 100,000 条上限时自动拆分
 - `[MITM] hostname`、`[Rule]`、`[Rewrite]`、`[Header Rewrite]`、`[Map Local]`、`[Body Rewrite]`、`[Argument]` 等常见配置转换
 - 远程 `script-path` 下载、脚本合并、参数替换、兼容层包装
 - 高置信度 JavaScript 原生化，例如 JSON 删除、替换、数组过滤、固定响应、静态请求改写
@@ -242,7 +242,7 @@ Self-deployment is better because:
 ### Features
 
 - Convert Loon / Surge modules and plugins to Anywhere MITM `.amrs`
-- Convert Loon / Surge rule sets to Anywhere routing `.arrs`
+- Convert Loon / Surge rule sets to Anywhere routing `.arrs`, automatically splitting files above Anywhere's 100,000-rule per-file limit
 - Support common sections such as `[MITM]`, `[Rule]`, `[Rewrite]`, `[Header Rewrite]`, `[Map Local]`, `[Body Rewrite]`, and `[Argument]`
 - Fetch remote `script-path` files, merge scripts, substitute arguments, and wrap compatibility scripts
 - Lift high-confidence JavaScript patterns into native Anywhere rules

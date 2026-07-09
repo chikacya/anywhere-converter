@@ -21,7 +21,7 @@ This document defines how the generic converter handles Loon/Surge JavaScript. H
 | `$response.status` | `ctx.status` | Readable in wrapper. |
 | `$response.headers` | `ctx.headers` converted to an object | Readable in wrapper. |
 | `$response.body` | decoded `ctx.body` text | Preserved for text response scripts. |
-| `$done({ body })` | assign `ctx.body`, then `Anywhere.done()` | Supported by compat wrapper. |
+| `$done({ body })` | assign `ctx.body`, then `Anywhere.done()` | Supported by compat wrapper. Response bodies that grow more than 65,535 bytes over the original body are left unchanged to avoid Anywhere's HTTP/2 `response grew over cap` fallback. |
 | `$done({ response })` | `Anywhere.respond()` | Supported for request-phase mock/redirect style scripts. |
 | `$done({})` | `Anywhere.done()` | Supported. |
 | `$persistentStore.read/write` | `Anywhere.store.getString/set` | Supported for simple string values. |
@@ -42,6 +42,8 @@ This document defines how the generic converter handles Loon/Surge JavaScript. H
 | `eval()` / `new Function()` in source scripts | compat wrapper only | Preserved as `sample-required`; dynamic runtime code cannot be considered stable without samples. |
 | Env helper `getdata/setdata/getjson/setjson/get/post/wait/time/queryStr/done` | wrapper Env shim | Implemented for common BoxJS/Env-style scripts; not a full task/runtime implementation. |
 | Env template `require(...)` branch | no direct mapping | Warning only; common Node.js branches are kept but need real-device validation. |
+
+Response growth note: Anywhere decodes negotiated response compression before body scripts, then applies a relative growth cap on HTTP/2 response rewrites. Scripts that decrypt or decompress an inner payload must re-encode it in the original shape when possible; otherwise the converted body can be discarded by the runtime even if the JavaScript itself succeeds.
 
 ## Native Lift Table
 

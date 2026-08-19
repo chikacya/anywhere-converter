@@ -974,6 +974,7 @@ $done({ body: JSON.stringify(obj) });\`;
       if ((json.preservedParameters || []).length) appendSignal("参数保留 " + json.preservedParameters.length);
       if (summary.nativeLiftCount) appendSignal("JS 原生化 " + summary.nativeLiftCount);
       if (summary.compatScriptCount) appendSignal("兼容层脚本 " + summary.compatScriptCount);
+      if (summary.scriptRuleCount) appendSignal("JS " + summary.scriptRuleCount + " 条 · 单次最大 " + formatByteSize(summary.maxPerHitScriptBytes));
       for (const reason of summary.sampleReasons || []) appendSignal(signalLabel(reason));
       for (const warning of summary.warnings || []) {
         if (warning === "script-compat-layer" && summary.compatScriptCount) continue;
@@ -1027,6 +1028,13 @@ $done({ body: JSON.stringify(obj) });\`;
         preview.textContent = JSON.stringify({ summary: json.summary, files: json.files, diagnostics: json.diagnostics }, null, 2);
       }
       downloadAll.disabled = !(json.files || []).some((file) => typeof file.content === "string");
+    }
+
+    function formatByteSize(value) {
+      const bytes = Number(value) || 0;
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0) + " KiB";
+      return (bytes / 1024 / 1024).toFixed(1) + " MiB";
     }
 
     function showFile(file) {

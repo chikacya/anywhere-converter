@@ -574,10 +574,14 @@ hostname = api.example.com
   assert.match(generated, /status: 201/);
   assert.match(generated, /application\/json/);
   assert(result.diagnostics.some((item) => item.code === "map-local-script-response"));
+  assert.equal(result.report.scriptMetrics.scriptRuleCount, 1);
+  assert(result.report.scriptMetrics.totalScriptBytes > 0);
+  assert.equal(result.report.scriptMetrics.maxPerHitScriptBytes, result.report.scriptMetrics.totalScriptBytes);
+  assert.equal(result.report.files[0].scriptRuleCount, 1);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 
-test("map local with status 200 and content-type stays native", () => {
+test("map local with status 200 preserves explicit content-type using a narrow script", () => {
   const source = `
 #!name = Map Local Native Header Mini
 [Map Local]
@@ -587,11 +591,90 @@ hostname = api.example.com
 `;
   const result = convertModule(source);
   const amrs = result.files.find((file) => file.type === "amrs");
-  const ruleLine = amrs.content.split("\n").find((line) => line.startsWith("0, 0,"));
-  assert.deepEqual(internals.parseCsv(ruleLine).slice(3), ["2", "{}"]);
-  assert(!amrs.content.includes("Anywhere.respond"));
-  assert(result.diagnostics.some((item) => item.code === "map-local-native-trivial-header"));
+  const scriptLine = amrs.content.split("\n").find((line) => line.startsWith("0, 100,"));
+  const generated = Buffer.from(internals.parseCsv(scriptLine)[3], "base64").toString("utf8");
+  assert.match(generated, /Anywhere\.respond/);
+  assert.match(generated, /application\/json/);
+  assert(result.diagnostics.some((item) => item.code === "map-local-script-response"));
+  assert.equal(result.report.scriptMetrics.scriptRuleCount, 1);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("downloads text Map Local files and preserves explicit response headers", async () => {
+  const sourceURL = "https://example.com/mock.json";
+  let fetchOptions = null;
+  const result = await convertModuleAsync(`
+#!name = Map Local File
+[Map Local]
+^https?:\\/\\/api\\.example\\.com\\/mock data-type=file data="${sourceURL}" status-code=200 header="Content-Type:application/json"
+[MITM]
+hostname = api.example.com
+`, {
+    fetchText: async (url, options) => {
+      assert.equal(url, sourceURL);
+      fetchOptions = options;
+      return '{"ok":true}';
+    },
+  });
+  assert.equal(fetchOptions.kind, "map-local");
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const scriptLine = amrs.content.split("\n").find((line) => line.startsWith("0, 100,"));
+  const generated = Buffer.from(internals.parseCsv(scriptLine)[3], "base64").toString("utf8");
+  assert.match(generated, /Anywhere\.respond/);
+  assert.match(generated, /application\/json/);
+  assert.match(generated, new RegExp(Buffer.from('{"ok":true}').toString("base64")));
+  assert(!result.diagnostics.some((item) => item.code === "map-local-data-type-unsupported"));
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("downloads headerless text Map Local files into native fixed-data", async () => {
+  const result = await convertModuleAsync(`
+#!name = Headerless Map Local File
+[Map Local]
+^https?:\\/\\/api\\.example\\.com\\/mock data-type=file data="https://example.com/mock.json"
+[MITM]
+hostname = api.example.com
+`, { fetchText: async () => "line 1\nline 2" });
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const fixed = amrs.content.split("\n").find((line) => line.startsWith("0, 0,"));
+  const fields = internals.parseCsv(fixed).slice(3);
+  assert.equal(fields[0], "4");
+  assert.equal(Buffer.from(fields[1], "base64").toString("utf8"), "line 1\nline 2");
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("does not fetch Map Local files that cannot be proven textual", async () => {
+  let fetched = false;
+  const result = await convertModuleAsync(`
+#!name = Binary Map Local File
+[Map Local]
+^https?:\\/\\/api\\.example\\.com\\/mock data-type=file data="https://example.com/mock.bin"
+[MITM]
+hostname = api.example.com
+`, {
+    fetchText: async () => {
+      fetched = true;
+      return "binary";
+    },
+  });
+  assert.equal(fetched, false);
+  assert.equal(result.report.status, "blocked");
+  assert(result.diagnostics.some((item) => item.code === "map-local-file-nontext"));
+});
+
+test("enforces Map Local file byte budgets", async () => {
+  const result = await convertModuleAsync(`
+#!name = Large Map Local File
+[Map Local]
+^https?:\\/\\/api\\.example\\.com\\/mock data-type=file data="https://example.com/mock.json"
+[MITM]
+hostname = api.example.com
+`, {
+    maxMapLocalBytes: 3,
+    fetchText: async () => "1234",
+  });
+  assert.equal(result.report.status, "blocked");
+  assert(result.diagnostics.some((item) => item.code === "map-local-fetch-file-too-large"));
 });
 
 test("does not emit stale content-type headers", () => {

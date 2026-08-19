@@ -85,12 +85,15 @@ const result = await convertAnyAsync(source, {
   maxScriptBytes: args.maxScriptBytes ? Number(args.maxScriptBytes) : undefined,
   maxTotalScriptBytes: args.maxTotalScriptBytes ? Number(args.maxTotalScriptBytes) : undefined,
   maxScriptFetches: args.maxScriptFetches ? Number(args.maxScriptFetches) : undefined,
+  maxMapLocalBytes: args.maxMapLocalBytes ? Number(args.maxMapLocalBytes) : undefined,
+  maxTotalMapLocalBytes: args.maxTotalMapLocalBytes ? Number(args.maxTotalMapLocalBytes) : undefined,
+  maxMapLocalFetches: args.maxMapLocalFetches ? Number(args.maxMapLocalFetches) : undefined,
   fetchText: async (url, options = {}) => {
     const response = await fetch(url, { redirect: "follow" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const text = await response.text();
     const maxBytes = options.maxBytes || 1024 * 1024;
-    if (new TextEncoder().encode(text).length > maxBytes) throw new Error(`script exceeds ${maxBytes} bytes`);
+    if (new TextEncoder().encode(text).length > maxBytes) throw new Error(`${options.kind || "resource"} exceeds ${maxBytes} bytes`);
     return text;
   },
 });

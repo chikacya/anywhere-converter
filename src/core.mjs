@@ -149,7 +149,7 @@ export function convertModule(source, options = {}) {
       break;
     }
     case "Map Local": {
-      const mapped = convertMapLocalLine(item);
+      const mapped = convertMapLocalLine(item, options);
       if (mapped?.rule) {
         addMitm(mapped.rule, item.line, item.raw);
         for (const diagnostic of mapped.diagnostics || []) {
@@ -248,6 +248,8 @@ export async function convertModuleAsync(source, options = {}) {
   const argumentValues = resolveArgumentValues(parsed.arguments, options.arguments);
   const scriptTextByURL = { ...(options.scriptTextByURL || {}) };
   const scriptSourceStatusByURL = {};
+  const mapLocalTextByURL = { ...(options.mapLocalTextByURL || {}) };
+  const mapLocalSourceStatusByURL = {};
   const diagnostics = [];
   const fetchText = options.fetchText;
   const maxScriptBytes = Number(options.maxScriptBytes || 1024 * 1024);
@@ -331,8 +333,50 @@ export async function convertModuleAsync(source, options = {}) {
         diagnostics.push(diagnostic);
       }
     }
+
+    const maxMapLocalBytes = Number(options.maxMapLocalBytes || 512 * 1024);
+    const maxTotalMapLocalBytes = Number(options.maxTotalMapLocalBytes || 2 * 1024 * 1024);
+    const maxMapLocalFetchesValue = Number(options.maxMapLocalFetches || 16);
+    const maxMapLocalFetches = Number.isFinite(maxMapLocalFetchesValue) && maxMapLocalFetchesValue > 0 ? maxMapLocalFetchesValue : 16;
+    const attemptedMapLocalURLs = new Set(Object.keys(mapLocalTextByURL));
+    let fetchedMapLocalBytes = Object.values(mapLocalTextByURL).reduce((sum, text) => sum + byteLength(text), 0);
+    let mapLocalFetchAttempts = 0;
+    for (const originalItem of parsed.items.filter((entry) => entry.section === "Map Local")) {
+      const resolvedItem = resolveItemArguments(originalItem, argumentValues);
+      if (!resolvedItem.enabled) continue;
+      const item = resolvedItem.item;
+      const descriptor = parseMapLocalDescriptor(item.text);
+      if (!descriptor || descriptor.dataType !== "file" || !/^https?:\/\//i.test(descriptor.data)) continue;
+      if (!mapLocalFileIsText(descriptor) || attemptedMapLocalURLs.has(descriptor.data)) continue;
+      attemptedMapLocalURLs.add(descriptor.data);
+      let failure = null;
+      if (mapLocalFetchAttempts >= maxMapLocalFetches) {
+        failure = ["map-local-fetch-count-exceeded", `Map Local 文件下载数量超过本次转换上限 ${maxMapLocalFetches}：${descriptor.data}`];
+      } else if (fetchedMapLocalBytes >= maxTotalMapLocalBytes) {
+        failure = ["map-local-fetch-budget-exceeded", `Map Local 文件总下载预算已用尽：${descriptor.data}`];
+      }
+      if (failure) {
+        mapLocalSourceStatusByURL[descriptor.data] = { code: failure[0], message: failure[1] };
+        continue;
+      }
+      try {
+        mapLocalFetchAttempts += 1;
+        const text = await fetchText(descriptor.data, { maxBytes: maxMapLocalBytes, kind: "map-local" });
+        const size = byteLength(text);
+        if (size > maxMapLocalBytes) {
+          mapLocalSourceStatusByURL[descriptor.data] = { code: "map-local-fetch-file-too-large", message: `Map Local 文件超过单文件预算 ${maxMapLocalBytes} bytes：${descriptor.data}` };
+        } else if (fetchedMapLocalBytes + size > maxTotalMapLocalBytes) {
+          mapLocalSourceStatusByURL[descriptor.data] = { code: "map-local-fetch-budget-exceeded", message: `Map Local 文件超过总下载预算 ${maxTotalMapLocalBytes} bytes：${descriptor.data}` };
+        } else {
+          mapLocalTextByURL[descriptor.data] = text;
+          fetchedMapLocalBytes += size;
+        }
+      } catch (error) {
+        mapLocalSourceStatusByURL[descriptor.data] = { code: "map-local-fetch-failed", message: `Map Local 文件下载失败：${descriptor.data} (${error?.message || error})` };
+      }
+    }
   }
-  const result = convertModule(source, { ...options, scriptTextByURL, scriptSourceStatusByURL });
+  const result = convertModule(source, { ...options, scriptTextByURL, scriptSourceStatusByURL, mapLocalTextByURL, mapLocalSourceStatusByURL });
   result.diagnostics.unshift(...diagnostics);
   result.report = buildReport({
     converted: result.report.converted,
@@ -1287,22 +1331,33 @@ function convertBodyRewriteLine(item) {
   return null;
 }
 
-function convertMapLocalLine(item) {
-  const split = splitLeadingToken(item.text);
-  if (!split) return null;
-  const [pattern, rest] = split;
-  const options = parseKeyValueTokens(rest);
-  const dataType = (options["data-type"] || "text").toLowerCase();
-  const data = options.data ?? "";
+function convertMapLocalLine(item, conversionOptions = {}) {
+  const descriptor = parseMapLocalDescriptor(item.text);
+  if (!descriptor) return null;
+  const { pattern, sourceOptions } = descriptor;
+  let dataType = descriptor.dataType;
+  let data = descriptor.data;
   const diagnostics = [];
-  const status = Number(options["status-code"] || 200);
-  if (options.header || status !== 200) {
-    const nativeRule = mapLocalNativeRuleWithTrivialHeader(pattern, { dataType, data, status, header: options.header || "" });
+  if (dataType === "file") {
+    if (!/^https?:\/\//i.test(data)) return { code: "map-local-file-url-unsupported", message: `Map Local file 只支持 http(s) URL：${data}` };
+    if (!mapLocalFileIsText(descriptor)) return { code: "map-local-file-nontext", message: `Map Local file 无法确认是文本资源，已跳过：${data}` };
+    const sourceURL = data;
+    const fetched = conversionOptions.mapLocalTextByURL?.[sourceURL];
+    if (typeof fetched !== "string") {
+      const failure = conversionOptions.mapLocalSourceStatusByURL?.[sourceURL];
+      return { code: failure?.code || "map-local-file-source-missing", message: failure?.message || `Map Local 文件未下载：${sourceURL}` };
+    }
+    data = base64(fetched);
+    dataType = "base64";
+  }
+  const status = Number(sourceOptions["status-code"] || 200);
+  if (sourceOptions.header || status !== 200) {
+    const nativeRule = mapLocalNativeRuleWithTrivialHeader(pattern, { dataType, data, status, header: sourceOptions.header || "" });
     if (nativeRule) {
       diagnostics.push({ level: "info", code: "map-local-native-trivial-header", message: "Map Local 仅包含 200/content-type，已映射为原生 fixed body 规则。" });
       return { rule: nativeRule, diagnostics };
     }
-    const rule = mapLocalRespondScriptRule(pattern, { dataType, data, status, header: options.header || "" });
+    const rule = mapLocalRespondScriptRule(pattern, { dataType, data, status, header: sourceOptions.header || "" });
     if (!rule) return { code: "map-local-data-type-unsupported", message: `Map Local data-type=${dataType} 不能安全映射。` };
     diagnostics.push({ level: "warning", code: "map-local-script-response", message: "Map Local 需要保留 status/header，已生成 request script 调用 Anywhere.respond；请实机确认 content-type/body 语义。" });
     return { rule, diagnostics };
@@ -1319,10 +1374,38 @@ function convertMapLocalLine(item) {
   return { code: "map-local-data-type-unsupported", message: `Map Local data-type=${dataType} 不能安全映射。` };
 }
 
+function parseMapLocalDescriptor(text) {
+  const split = splitLeadingToken(text);
+  if (!split) return null;
+  const [pattern, rest] = split;
+  const sourceOptions = parseKeyValueTokens(rest);
+  return {
+    pattern,
+    sourceOptions,
+    dataType: (sourceOptions["data-type"] || "text").toLowerCase(),
+    data: sourceOptions.data ?? "",
+  };
+}
+
+function mapLocalContentType(descriptor) {
+  const headers = parseExplicitHeaderList(descriptor?.sourceOptions?.header || "");
+  return String(headers.find(([name]) => name === "content-type")?.[1] || "").toLowerCase();
+}
+
+function mapLocalFileIsText(descriptor) {
+  const contentType = mapLocalContentType(descriptor);
+  if (/^(?:text\/)|(?:json|javascript|xml|yaml)/i.test(contentType)) return true;
+  try {
+    return /\.(?:json|txt|js|mjs|css|html?|xml|ya?ml)$/i.test(new URL(descriptor.data).pathname);
+  } catch {
+    return false;
+  }
+}
+
 function mapLocalNativeRuleWithTrivialHeader(pattern, options) {
   if (options.status !== 200) return null;
   const explicitHeaders = parseExplicitHeaderList(options.header || "");
-  if (explicitHeaders.some(([name]) => name !== "content-type")) return null;
+  if (explicitHeaders.length) return null;
   const type = String(options.dataType || "text").toLowerCase();
   if (type === "base64") return { phase: 0, op: 0, pattern: urlGate(pattern), fields: ["4", options.data] };
   if (type === "tiny-gif" || type === "gif") return { phase: 0, op: 0, pattern: urlGate(pattern), fields: ["3"] };
@@ -3272,17 +3355,45 @@ function buildReport({ converted, skipped, files, diagnostics }) {
       : hasPartial
         ? "partial"
         : "stable";
+  const reportedFiles = files.map((file) => ({ name: file.name, type: file.type, ruleCount: file.ruleCount, ...scriptMetricsForFile(file) }));
+  const scriptMetrics = {
+    scriptRuleCount: reportedFiles.reduce((sum, file) => sum + file.scriptRuleCount, 0),
+    totalScriptBytes: reportedFiles.reduce((sum, file) => sum + file.totalScriptBytes, 0),
+    maxPerHitScriptBytes: reportedFiles.reduce((max, file) => Math.max(max, file.maxPerHitScriptBytes), 0),
+  };
   return {
     status,
     converted,
     skipped,
     fileCount: files.length,
-    files: files.map((file) => ({ name: file.name, type: file.type, ruleCount: file.ruleCount })),
+    files: reportedFiles,
+    scriptMetrics,
     diagnostics: diagnostics.reduce((acc, item) => {
       acc[item.level] = (acc[item.level] || 0) + 1;
       return acc;
     }, {}),
   };
+}
+
+function scriptMetricsForFile(file) {
+  const metrics = { scriptRuleCount: 0, totalScriptBytes: 0, maxPerHitScriptBytes: 0 };
+  if (file.type !== "amrs" || !file.content) return metrics;
+  for (const line of String(file.content).split(/\r?\n/)) {
+    if (!/^[01],\s*(?:100|101),/.test(line)) continue;
+    const fields = parseCsv(line);
+    const bytes = decodedBase64Length(fields[3] || "");
+    metrics.scriptRuleCount += 1;
+    metrics.totalScriptBytes += bytes;
+    metrics.maxPerHitScriptBytes = Math.max(metrics.maxPerHitScriptBytes, bytes);
+  }
+  return metrics;
+}
+
+function decodedBase64Length(value) {
+  const text = String(value || "").replace(/\s+/g, "");
+  if (!text || text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) return 0;
+  const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
+  return text.length / 4 * 3 - padding;
 }
 
 function normalizeHostnames(values, diagnostics) {

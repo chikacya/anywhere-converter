@@ -98,7 +98,9 @@ Status:
 | `data-type=json data="..."` | `0, 0, pattern, 2, ...` | stable | Content-Type is not preserved. |
 | `data-type=base64` | `0, 0, pattern, 4, ...` | stable | Binary fixed response. |
 | `data-type=tiny-gif` | `0, 0, pattern, 3` | stable | 1x1 GIF. |
-| `status-code=200 header="Content-Type:..."` | native fixed body | stable | Content-Type-only headers are treated as non-semantic for fixed body output. |
+| headerless `data-type=file` with a confirmed text/JSON URL | downloaded + native fixed-data body | stable | Standard conversion downloads bounded `http(s)` text resources and Base64-inlines their UTF-8 bytes; unknown/binary file types remain blocked. |
+| `data-type=file ... header="Content-Type:..."` | narrow `Anywhere.respond` script | partial | Required for header equivalence: native fixed text/data hard-code `text/plain` / `application/octet-stream`. |
+| `status-code=200 header="Content-Type:..."` | narrow `Anywhere.respond` script | partial | Explicit Content-Type is semantic and is preserved rather than discarded. |
 | `header=...` | `0, 100, pattern, base64(process)` | partial | Generated request script calls `Anywhere.respond` to preserve headers. |
 | `status-code != 200` | `0, 100, pattern, base64(process)` | partial | Generated request script preserves status and body. |
 

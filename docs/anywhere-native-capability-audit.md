@@ -23,6 +23,8 @@ This table is generated from the current Anywhere MITM script engine source and 
 | `TextEncoder` / `TextDecoder` globals | Web text codec | bridged | Anywhere installs these natively; wrapper also provides fallback for older clients or isolated evaluation. |
 | `script` op `100` | buffered `process(ctx)` | native output | Generic script preservation and generated responder/proxy scripts use buffered scripts. Anywhere decodes `gzip` / `deflate` / `br` before script/body rules and emits identity afterward. |
 | `stream-script` op `101` | per-frame `process(ctx)` | documented/manual | Available for SSE/NDJSON/gRPC/long streams. The generic converter does not auto-convert Loon/Surge response scripts to `101` because their `$response.body` semantics are whole-message, not per-frame. |
+| `ctx.originalUrl` | pre-transparent-rewrite URL | review guardrail | Available when a native transparent rewrite and script share a flow. Future URL/script composition changes must distinguish it from rewritten `ctx.url`. |
+| Per-invocation JS compilation | fresh context and compile on every hit | reported | Reports expose total script bytes and the maximum per-hit script size; optimization should target the latter rather than only the final AMRS size. |
 | Response body codec negotiation | Accept-Encoding clamp + Content-Encoding decode | native runtime | Converter relies on Anywhere's runtime clamp/decode for body rules and no longer emits synthetic `accept-encoding: identity` preprocess rules. |
 
 ## Explicit Non-Goals

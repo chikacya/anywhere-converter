@@ -58,3 +58,7 @@ These links preserve the original module or rule-set URL in the subscription, so
 - Request scripts cannot directly mutate URL, method, or headers. Those must be lifted to native rewrite/header rules.
 - Protobuf/binary scripts can be preserved, but schema-level equivalence requires samples and endpoint-specific recipes.
 - `DOMAIN` exact semantics cannot be represented in Anywhere routing; it is emitted as suffix with diagnostics.
+
+## Script Cost Metrics
+
+Conversion reports include `scriptRuleCount`, `totalScriptBytes`, and `maxPerHitScriptBytes`. The last value is the most relevant hot-path number because Anywhere compiles the selected script source for every invocation and executes at most one buffered script per message. Native-only outputs report zero script bytes.

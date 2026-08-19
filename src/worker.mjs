@@ -103,6 +103,9 @@ async function handleConvert(request, env) {
     maxScriptBytes: maxScriptBytes(env),
     maxTotalScriptBytes: maxTotalScriptBytes(env),
     maxScriptFetches: maxScriptFetches(env),
+    maxMapLocalBytes: maxMapLocalBytes(env),
+    maxTotalMapLocalBytes: maxTotalMapLocalBytes(env),
+    maxMapLocalFetches: maxMapLocalFetches(env),
     fetchText: async (url, options = {}) => {
       const fetched = await fetchSourceURL(url, env, options.maxBytes || maxScriptBytes(env), { cache: "memory" });
       if (fetched.error) throw new Error(fetched.detail || fetched.error);
@@ -177,6 +180,7 @@ async function handleConvert(request, env) {
 
 function summarizeResult(result, files) {
   const visibleWarnings = result.diagnostics.filter((item) => item.level === "warning" && !isBenignSummaryDiagnostic(item));
+  const scriptMetrics = result.report.scriptMetrics || {};
   return {
     status: result.report.status,
     converted: result.report.converted,
@@ -188,6 +192,9 @@ function summarizeResult(result, files) {
     sampleReasons: uniqueDiagnosticCodes(result.diagnostics.filter((item) => isSampleRequiredDiagnostic(item))),
     nativeLiftCount: result.diagnostics.filter((item) => item.code === "script-native-lift" || item.code === "script-respond-lift").length,
     compatScriptCount: result.diagnostics.filter((item) => item.code === "script-compat-layer").length,
+    scriptRuleCount: scriptMetrics.scriptRuleCount || 0,
+    totalScriptBytes: scriptMetrics.totalScriptBytes || 0,
+    maxPerHitScriptBytes: scriptMetrics.maxPerHitScriptBytes || 0,
     warnings: uniqueDiagnosticCodes(visibleWarnings).slice(0, 8),
     scriptRecoveryUrls: scriptRecoveryUrls(result.diagnostics),
   };
@@ -274,10 +281,13 @@ async function convertFromDynamicQuery(request, env) {
     maxScriptBytes: maxScriptBytes(env),
     maxTotalScriptBytes: maxTotalScriptBytes(env),
     maxScriptFetches: maxScriptFetches(env),
-    fetchText: async (scriptUrl, options = {}) => {
-      const script = await fetchSourceURL(scriptUrl, env, options.maxBytes || maxScriptBytes(env), { cache: "memory" });
-      if (script.error) throw new Error(script.detail || script.error);
-      return script.source;
+    maxMapLocalBytes: maxMapLocalBytes(env),
+    maxTotalMapLocalBytes: maxTotalMapLocalBytes(env),
+    maxMapLocalFetches: maxMapLocalFetches(env),
+    fetchText: async (resourceUrl, options = {}) => {
+      const resource = await fetchSourceURL(resourceUrl, env, options.maxBytes || maxScriptBytes(env), { cache: "memory" });
+      if (resource.error) throw new Error(resource.detail || resource.error);
+      return resource.source;
     },
   });
   return {
@@ -779,6 +789,21 @@ function maxScriptFetches(env) {
   const configured = Number(env.MAX_SCRIPT_FETCHES || 45);
   if (configured === 0) return 0;
   return Number.isFinite(configured) && configured > 0 ? configured : 45;
+}
+
+function maxMapLocalBytes(env) {
+  const configured = Number(env.MAX_MAP_LOCAL_BYTES || 512 * 1024);
+  return Number.isFinite(configured) && configured > 0 ? configured : 512 * 1024;
+}
+
+function maxTotalMapLocalBytes(env) {
+  const configured = Number(env.MAX_TOTAL_MAP_LOCAL_BYTES || 2 * 1024 * 1024);
+  return Number.isFinite(configured) && configured > 0 ? configured : 2 * 1024 * 1024;
+}
+
+function maxMapLocalFetches(env) {
+  const configured = Number(env.MAX_MAP_LOCAL_FETCHES || 16);
+  return Number.isFinite(configured) && configured > 0 ? configured : 16;
 }
 
 function fetchCacheTtl(env) {

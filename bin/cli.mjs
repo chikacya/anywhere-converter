@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { convertAnyAsync, validateAnywhereOutput } from "../src/core.mjs";
+import { convertAnyAsync, normalizeIconBase64, validateAnywhereOutput } from "../src/core.mjs";
 
 function parseArgs(argv) {
   const args = {};
@@ -68,8 +68,56 @@ function loadScriptTextOverrides(args) {
 const args = parseArgs(process.argv.slice(2));
 const input = args.input || args._?.[0];
 if (!input) {
-  console.error("Usage: node bin/cli.mjs --input <module.plugin|sgmodule|ruleset.list> [--source-kind auto|module|ruleset] [--rule-set-routing default|direct|reject] [--out-dir ./out] [--json]");
+  console.error("Usage: node bin/cli.mjs --input <module.plugin|sgmodule|ruleset.list> [--icon-file icon.png | --icon-url https://...] [--source-kind auto|module|ruleset] [--rule-set-routing default|direct|reject] [--out-dir ./out] [--json]");
   process.exit(2);
+}
+
+async function loadIconBase64(args) {
+  if (args.iconFile && args.iconUrl) {
+    console.error("Use only one of --icon-file or --icon-url.");
+    process.exit(2);
+  }
+  let encoded = "";
+  if (args.iconFile) encoded = fs.readFileSync(args.iconFile).toString("base64");
+  if (args.iconUrl) {
+    const response = await fetch(args.iconUrl, { redirect: "follow" });
+    if (!response.ok) throw new Error(`icon HTTP ${response.status}`);
+    const contentLength = Number(response.headers.get("content-length") || "0");
+    if (contentLength > 256 * 1024) throw new Error("icon exceeds 262144 bytes");
+    encoded = Buffer.from(await readBoundedIconBytes(response, 256 * 1024)).toString("base64");
+  }
+  if (!encoded) return "";
+  const normalized = normalizeIconBase64(encoded);
+  if (normalized.error) throw new Error(normalized.error);
+  return normalized.base64;
+}
+
+async function readBoundedIconBytes(response, limit) {
+  if (!response.body?.getReader) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > limit) throw new Error(`icon exceeds ${limit} bytes`);
+    return bytes;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel();
+      throw new Error(`icon exceeds ${limit} bytes`);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
 }
 
 const source = fs.readFileSync(input, "utf8");
@@ -80,6 +128,7 @@ const result = await convertAnyAsync(source, {
   ruleSetRouting: args.ruleSetRouting,
   arguments: parseArgumentOverrides(args),
   preserveParameters: args.preserveParameters === true || args.preserveParameters === "1" || args.preserveParameters === "true",
+  iconLightBase64: await loadIconBase64(args),
   scriptTextByURL: loadScriptTextOverrides(args),
   fetchScripts: args.fetchScripts == null ? true : args.fetchScripts === "1" || args.fetchScripts === "true",
   maxScriptBytes: args.maxScriptBytes ? Number(args.maxScriptBytes) : undefined,

@@ -1,10 +1,11 @@
-import { convertAnyAsync, detectSourceKind, internals, parseModule, parseRuleSet, validateAnywhereOutput } from "./core.mjs";
+import { convertAnyAsync, detectSourceKind, internals, normalizeIconBase64, parseModule, parseRuleSet, validateAnywhereOutput } from "./core.mjs";
 import { renderHome } from "./ui.mjs";
 
 const memoryStore = new Map();
 const memoryRateStore = new Map();
 const memoryFetchCache = new Map();
 const memoryDynamicCache = new Map();
+const memoryIconCache = new Map();
 
 export default {
   async fetch(request, env) {
@@ -15,7 +16,7 @@ export default {
       if (request.method === "GET" && url.pathname === "/health") return jsonResponse({
         ok: true,
         version: "0.1.0",
-        capabilities: ["url-input", "text-input", "argument-form", "script-fetch", "script-recovery", "native-js-lift", "aggressive-js-lift", "ruleset-conversion", "dynamic-subscription", "cache-bust-refresh", "browser-download", "fallback-snapshot"],
+        capabilities: ["url-input", "text-input", "custom-icon", "icon-url", "argument-form", "script-fetch", "script-recovery", "native-js-lift", "aggressive-js-lift", "ruleset-conversion", "dynamic-subscription", "cache-bust-refresh", "browser-download", "fallback-snapshot"],
       });
       if (request.method === "POST" && url.pathname === "/api/inspect") {
         const limited = await rateLimit(request, env, "inspect");
@@ -26,6 +27,11 @@ export default {
         const limited = await rateLimit(request, env, "convert");
         if (limited) return limited;
         return await handleConvert(request, env);
+      }
+      if (request.method === "POST" && url.pathname === "/api/icon") {
+        const limited = await rateLimit(request, env, "icon");
+        if (limited) return limited;
+        return await handleIconPreview(request, env);
       }
       if (request.method === "GET" && url.pathname === "/sub/deeplink") {
         const limited = await rateLimit(request, env, "subscribe");
@@ -77,6 +83,18 @@ async function handleInspect(request, env) {
   });
 }
 
+async function handleIconPreview(request, env) {
+  const input = await readInput(request);
+  const result = await fetchIconURL(input.iconUrl, env);
+  if (result.error) return jsonResponse({ error: result.error, detail: result.detail }, result.status || 400);
+  return jsonResponse({
+    iconUrl: result.url,
+    base64: result.base64,
+    mimeType: result.mimeType,
+    bytes: result.bytes,
+  });
+}
+
 async function handleConvert(request, env) {
   const input = await readInput(request);
   if (!input.source?.trim() && input.url) {
@@ -90,6 +108,8 @@ async function handleConvert(request, env) {
     return jsonResponse({ error: "input_too_large" }, 413);
   }
 
+  const icon = await resolveIconInput(input, env);
+  if (icon.error) return jsonResponse({ error: icon.error, detail: icon.detail }, icon.status || 400);
   const scriptTextByURL = normalizeScriptTextByURL(input.scriptTextByURL, env);
   const result = await convertAnyAsync(input.source, {
     name: input.name,
@@ -98,6 +118,7 @@ async function handleConvert(request, env) {
     ruleSetRouting: input.ruleSetRouting,
     arguments: isPlainObject(input.arguments) ? input.arguments : {},
     preserveParameters: truthyInput(input.preserveParameters),
+    iconLightBase64: icon.base64,
     scriptTextByURL,
     fetchScripts: input.fetchScripts == null ? true : input.fetchScripts === true || input.fetchScripts === "true" || input.fetchScripts === "1",
     maxScriptBytes: maxScriptBytes(env),
@@ -123,7 +144,7 @@ async function handleConvert(request, env) {
 
   const ensureSnapshotHash = async () => {
     if (!snapshotHash) {
-      snapshotHash = await sha256(input.source + "\n" + (input.name || "") + "\n" + (input.sourceUrl || "") + "\n" + scriptOverrideHash(scriptTextByURL));
+      snapshotHash = await sha256(input.source + "\n" + (input.name || "") + "\n" + (input.sourceUrl || "") + "\n" + scriptOverrideHash(scriptTextByURL) + "\n" + (icon.base64 || "") + "\n" + (icon.url || ""));
     }
     return snapshotHash;
   };
@@ -175,6 +196,7 @@ async function handleConvert(request, env) {
     dynamicImportUrl: dynamic.importUrl || undefined,
     dynamicFiles: dynamic.files,
     storage: snapshotImportUrl ? (env.CONVERTER_KV ? "kv" : "memory") : "dynamic",
+    icon: icon.base64 ? { source: icon.source, url: icon.url || undefined, mimeType: icon.mimeType, bytes: icon.bytes } : undefined,
   });
 }
 
@@ -239,6 +261,7 @@ async function handleDynamicDeeplink(request, env) {
     mode: converted.mode,
     preserveParameters: converted.preserveParameters,
     cacheBust: converted.cacheBust,
+    iconUrl: converted.iconUrl,
   }, {});
   if (!dynamic.importUrl) return textResponse("Error: no rules to import", 404);
 
@@ -270,6 +293,9 @@ async function convertFromDynamicQuery(request, env) {
   const args = argumentsFromSearchParams(url.searchParams);
   const preserveParameters = truthyInput(url.searchParams.get("preserveParameters") || url.searchParams.get("preserveArguments"));
   const cacheBust = normalizeCacheBust(url.searchParams.get("cacheBust") || url.searchParams.get("_"));
+  const iconUrl = String(url.searchParams.get("iconUrl") || "").trim();
+  const icon = iconUrl ? await fetchIconURL(iconUrl, env) : { base64: "", source: "none", url: "" };
+  if (icon.error) return icon;
   const result = await convertAnyAsync(fetched.source, {
     name,
     mode,
@@ -277,6 +303,7 @@ async function convertFromDynamicQuery(request, env) {
     ruleSetRouting,
     arguments: args,
     preserveParameters,
+    iconLightBase64: icon.base64,
     fetchScripts,
     maxScriptBytes: maxScriptBytes(env),
     maxTotalScriptBytes: maxTotalScriptBytes(env),
@@ -301,6 +328,7 @@ async function convertFromDynamicQuery(request, env) {
     arguments: args,
     preserveParameters,
     cacheBust,
+    iconUrl: icon.url || iconUrl,
   };
 }
 
@@ -328,12 +356,12 @@ function routingOfArrs(content) {
 
 function dynamicLinksForResult(request, result, input, scriptTextByURL) {
   const sourceUrl = input.sourceUrl || input.url || "";
-  if (!sourceUrl || Object.keys(scriptTextByURL || {}).length) return { files: [], importUrl: "" };
+  if (!sourceUrl || Object.keys(scriptTextByURL || {}).length || String(input.iconLightBase64 || "").trim()) return { files: [], importUrl: "" };
 
   const base = new URL(request.url);
   const requestedKind = String(input.sourceKind || "").toLowerCase();
   const sourceKind = requestedKind && requestedKind !== "auto" ? requestedKind : result.sourceKind;
-  const query = dynamicSearchParams(sourceUrl, input.name || "", input.arguments || {}, input.fetchScripts, input.mode, sourceKind, input.ruleSetRouting ?? result.ruleSetRouting, input.cacheBust, input.preserveParameters);
+  const query = dynamicSearchParams(sourceUrl, input.name || "", input.arguments || {}, input.fetchScripts, input.mode, sourceKind, input.ruleSetRouting ?? result.ruleSetRouting, input.cacheBust, input.preserveParameters, input.iconUrl);
   const files = [];
   for (const file of result.files || []) {
     const path = dynamicPathForFile(file);
@@ -357,7 +385,7 @@ function dynamicPathForFile(file) {
   return "/sub/rule.arrs";
 }
 
-function dynamicSearchParams(sourceUrl, name, args, fetchScripts, mode, sourceKind, ruleSetRouting, cacheBust, preserveParameters) {
+function dynamicSearchParams(sourceUrl, name, args, fetchScripts, mode, sourceKind, ruleSetRouting, cacheBust, preserveParameters, iconUrl = "") {
   const params = new URLSearchParams();
   params.set("url", sourceUrl);
   if (name) params.set("name", name);
@@ -370,6 +398,7 @@ function dynamicSearchParams(sourceUrl, name, args, fetchScripts, mode, sourceKi
   const bust = normalizeCacheBust(cacheBust);
   if (bust) params.set("cacheBust", bust);
   if (truthyInput(preserveParameters)) params.set("preserveParameters", "true");
+  if (String(iconUrl || "").trim()) params.set("iconUrl", String(iconUrl).trim());
   for (const [key, value] of Object.entries(args || {})) {
     if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key)) continue;
     params.set(`argument.${key}`, String(value));
@@ -601,6 +630,130 @@ async function readInput(request) {
   return { source: await request.text() };
 }
 
+async function resolveIconInput(input, env) {
+  const inline = String(input.iconLightBase64 || "").trim();
+  const remote = String(input.iconUrl || "").trim();
+  if (inline && remote) return { error: "ambiguous_icon_source", detail: "请只选择上传图片或图片 URL 中的一种。", status: 400 };
+  if (inline) {
+    const normalized = normalizeIconBase64(inline, maxIconBytes(env));
+    if (normalized.error) return { error: "invalid_icon", detail: normalized.error, status: /超过/.test(normalized.error) ? 413 : 400 };
+    return { ...normalized, source: "upload", url: "" };
+  }
+  if (remote) return fetchIconURL(remote, env);
+  return { base64: "", mimeType: "", bytes: 0, source: "none", url: "" };
+}
+
+async function fetchIconURL(rawUrl, env) {
+  const requested = String(rawUrl || "").trim();
+  if (!requested) return { error: "missing_icon_url", detail: "请填写图片 URL。", status: 400 };
+  let original;
+  try {
+    original = new URL(requested);
+  } catch {
+    return { error: "bad_icon_url", detail: "图片 URL 无法解析。", status: 400 };
+  }
+  if (!isSafeRemoteURL(original)) return { error: "blocked_icon_url", detail: "图片只允许使用公网 http/https URL。", status: 400 };
+
+  const cached = memoryIconCache.get(original.toString());
+  if (cached && cached.expiresAt > Date.now()) return { ...cached.value, source: "url" };
+
+  const limit = maxIconBytes(env);
+  let lastFailure = "";
+  for (const candidate of fetchURLCandidates(original)) {
+    let current = candidate;
+    for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
+      if (!isSafeRemoteURL(current)) {
+        lastFailure = "重定向目标不是公网 http/https URL。";
+        break;
+      }
+      let response;
+      try {
+        response = await fetch(current.toString(), {
+          headers: { "user-agent": "AnywhereModuleConverter/0.1", accept: "image/png,image/jpeg,image/webp,image/gif,image/*;q=0.8" },
+          redirect: "manual",
+        });
+      } catch (error) {
+        lastFailure = error?.message || "图片下载失败。";
+        break;
+      }
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location || redirectCount === 5) {
+          lastFailure = redirectCount === 5 ? "图片重定向次数超过上限。" : "图片重定向缺少 Location。";
+          break;
+        }
+        try {
+          current = new URL(location, current);
+        } catch {
+          lastFailure = "图片重定向 URL 无法解析。";
+          break;
+        }
+        continue;
+      }
+      if (!response.ok) {
+        lastFailure = `HTTP ${response.status}`;
+        break;
+      }
+      const contentLength = Number(response.headers.get("content-length") || "0");
+      if (contentLength > limit) return { error: "icon_too_large", detail: `图片超过 ${limit} bytes 上限。`, status: 413 };
+      let bytes;
+      try {
+        bytes = await readBoundedBytes(response, limit);
+      } catch (error) {
+        return { error: "icon_too_large", detail: error?.message || `图片超过 ${limit} bytes 上限。`, status: 413 };
+      }
+      const normalized = normalizeIconBase64(bytesToBase64(bytes), limit);
+      if (normalized.error) return { error: "invalid_icon", detail: normalized.error, status: /超过/.test(normalized.error) ? 413 : 400 };
+      const value = { ...normalized, source: "url", url: original.toString(), finalUrl: current.toString() };
+      memoryIconCache.set(original.toString(), { value, expiresAt: Date.now() + Math.max(60, fetchCacheTtl(env)) * 1000 });
+      return value;
+    }
+  }
+  return { error: "icon_fetch_failed", detail: lastFailure || "图片下载失败。", status: 502 };
+}
+
+function isSafeRemoteURL(url) {
+  return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !isBlockedFetchHost(url.hostname);
+}
+
+async function readBoundedBytes(response, limit) {
+  if (!response.body?.getReader) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > limit) throw new Error(`图片超过 ${limit} bytes 上限。`);
+    return bytes;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      await reader.cancel();
+      throw new Error(`图片超过 ${limit} bytes 上限。`);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  if (typeof btoa === "function") return btoa(binary);
+  return globalThis.Buffer.from(bytes).toString("base64");
+}
+
 async function fetchSourceURL(rawUrl, env, byteLimit, options = {}) {
   let url;
   try {
@@ -804,6 +957,12 @@ function maxTotalMapLocalBytes(env) {
 function maxMapLocalFetches(env) {
   const configured = Number(env.MAX_MAP_LOCAL_FETCHES || 16);
   return Number.isFinite(configured) && configured > 0 ? configured : 16;
+}
+
+function maxIconBytes(env) {
+  const anywhereLimit = 256 * 1024;
+  const configured = Number(env.MAX_ICON_BYTES || anywhereLimit);
+  return Number.isFinite(configured) && configured > 0 ? Math.min(configured, anywhereLimit) : anywhereLimit;
 }
 
 function fetchCacheTtl(env) {

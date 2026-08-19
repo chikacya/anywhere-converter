@@ -25,6 +25,7 @@ Anywhere-converter 是一个通用的 Loon / Surge 插件、模块、JavaScript 
 - Loon / Surge 规则集转换为 Anywhere 路由规则 `.arrs`，超过 Anywhere 单文件 100,000 条上限时自动拆分
 - `[MITM] hostname`、`[Rule]`、`[Rewrite]`、`[Header Rewrite]`、`[Map Local]`、`[Body Rewrite]`、`[Argument]` 等常见配置转换
 - 有边界地下载文本型 `Map Local data-type=file`，无响应头时原生化，有显式状态码/响应头时保留完整响应语义
+- 支持自定义规则集图标：上传 PNG/JPEG/WebP/GIF，或导入公网图片 URL；自动写入 `icon-light`
 - 远程 `script-path` 下载、脚本合并、参数替换、兼容层包装
 - 高置信度 JavaScript 原生化，例如 JSON 删除、替换、数组过滤、固定响应、静态请求改写
 - 可选增强 JS 原生化模式
@@ -57,6 +58,16 @@ http://localhost:8787/
 
 ```sh
 npm run convert -- --input path/to/module.plugin --out-dir ./out
+```
+
+添加自定义图标：
+
+```sh
+# 本地 PNG / JPEG / WebP / GIF
+npm run convert -- --input path/to/module.plugin --icon-file ./icon.png --out-dir ./out
+
+# 公网图片 URL
+npm run convert -- --input path/to/module.plugin --icon-url https://example.com/icon.png --out-dir ./out
 ```
 
 转换独立规则集时，需要指定规则集类型和路由：
@@ -128,6 +139,7 @@ Cloudflare Worker 部署适合长期使用，可以生成在线转换页面、AP
 | `MAX_MAP_LOCAL_BYTES` | 单个远程 Map Local 文本文件最大大小 | `524288` |
 | `MAX_TOTAL_MAP_LOCAL_BYTES` | 单次转换 Map Local 文件总大小 | `2097152` |
 | `MAX_MAP_LOCAL_FETCHES` | 单次转换最多下载多少个 Map Local 文件 | `16` |
+| `MAX_ICON_BYTES` | 自定义图标最大大小（Anywhere 上限为 256 KiB） | `262144` |
 | `FETCH_CACHE_TTL_SECONDS` | 上游模块/脚本 fetch 缓存时间 | `900` |
 | `DYNAMIC_CACHE_TTL_SECONDS` | 动态订阅转换结果缓存时间 | `900` |
 | `RATE_LIMIT_PER_MINUTE` | 每分钟请求限制，`0` 表示关闭 | `60` |
@@ -249,6 +261,7 @@ Self-deployment is better because:
 - Convert Loon / Surge rule sets to Anywhere routing `.arrs`, automatically splitting files above Anywhere's 100,000-rule per-file limit
 - Support common sections such as `[MITM]`, `[Rule]`, `[Rewrite]`, `[Header Rewrite]`, `[Map Local]`, `[Body Rewrite]`, and `[Argument]`
 - Bounded remote text `Map Local data-type=file` fetching, with native output for headerless responses and semantic header/status preservation when declared
+- Support custom rule-set icons from an uploaded PNG/JPEG/WebP/GIF or a public image URL, emitted as `icon-light`
 - Fetch remote `script-path` files, merge scripts, substitute arguments, and wrap compatibility scripts
 - Lift high-confidence JavaScript patterns into native Anywhere rules
 - Optional aggressive JavaScript native-lift mode
@@ -281,6 +294,16 @@ Run the CLI converter:
 
 ```sh
 npm run convert -- --input path/to/module.plugin --out-dir ./out
+```
+
+Add a custom icon:
+
+```sh
+# Local PNG / JPEG / WebP / GIF
+npm run convert -- --input path/to/module.plugin --icon-file ./icon.png --out-dir ./out
+
+# Public image URL
+npm run convert -- --input path/to/module.plugin --icon-url https://example.com/icon.png --out-dir ./out
 ```
 
 Convert a standalone rule set:
@@ -350,6 +373,7 @@ Environment variables:
 | `MAX_MAP_LOCAL_BYTES` | Maximum size for one remote Map Local text file | `524288` |
 | `MAX_TOTAL_MAP_LOCAL_BYTES` | Maximum total Map Local file bytes per conversion | `2097152` |
 | `MAX_MAP_LOCAL_FETCHES` | Maximum remote Map Local files fetched per conversion | `16` |
+| `MAX_ICON_BYTES` | Maximum custom icon size (Anywhere caps it at 256 KiB) | `262144` |
 | `FETCH_CACHE_TTL_SECONDS` | Upstream source/script fetch cache TTL | `900` |
 | `DYNAMIC_CACHE_TTL_SECONDS` | Dynamic subscription conversion cache TTL | `900` |
 | `RATE_LIMIT_PER_MINUTE` | Per-client rate limit; `0` disables it | `60` |

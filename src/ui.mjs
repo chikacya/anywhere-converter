@@ -237,7 +237,8 @@ export function renderHome() {
       background: #f8fbfd;
     }
     body[data-theme="dark"] .script-recovery,
-    body[data-theme="dark"] .argument-config {
+    body[data-theme="dark"] .argument-config,
+    body[data-theme="dark"] .icon-config {
       background: #101a24;
       border-color: #425368;
     }
@@ -305,6 +306,105 @@ export function renderHome() {
       font-size: 12px;
       font-weight: 800;
     }
+    .icon-config {
+      border: 1px solid #9fb0c0;
+      border-radius: 6px;
+      background: #f8fbfd;
+      overflow: clip;
+    }
+    .icon-config summary {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 10px;
+      color: var(--ink);
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .icon-config summary::-webkit-details-marker { display: none; }
+    .icon-config summary:focus-visible { outline: 3px solid color-mix(in srgb, var(--blueprint) 32%, transparent); outline-offset: -3px; }
+    .icon-summary-copy { display: grid; gap: 2px; min-width: 0; }
+    .icon-summary-copy strong { font-size: 12px; }
+    .icon-summary-copy small { color: var(--muted); font-size: 11px; line-height: 1.35; font-weight: 700; }
+    .icon-summary-state {
+      flex: 0 0 auto;
+      min-height: 28px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--paper);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .icon-summary-state::after { content: "+"; font-size: 16px; line-height: 1; }
+    .icon-config[open] .icon-summary-state::after { content: "−"; }
+    .icon-config.has-icon .icon-summary-state { color: var(--teal); border-color: color-mix(in srgb, var(--teal) 55%, var(--line)); }
+    .icon-panel {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 12px;
+      padding: 12px 10px 10px;
+      border-top: 1px solid var(--line);
+    }
+    .icon-preview {
+      width: 88px;
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background:
+        linear-gradient(45deg, var(--panel) 25%, transparent 25%, transparent 75%, var(--panel) 75%),
+        linear-gradient(45deg, var(--panel) 25%, var(--paper) 25%, var(--paper) 75%, var(--panel) 75%);
+      background-position: 0 0, 8px 8px;
+      background-size: 16px 16px;
+      overflow: hidden;
+    }
+    .icon-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .icon-preview svg { width: 30px; height: 30px; color: var(--muted); }
+    .icon-controls { display: grid; gap: 9px; min-width: 0; }
+    .icon-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 7px; background: var(--line); }
+    .icon-tab {
+      min-height: 34px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .icon-tab.active { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px var(--shadow); }
+    .icon-pane { display: grid; gap: 7px; }
+    .icon-drop {
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 10px;
+      border: 1px dashed var(--blueprint);
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--blueprint) 6%, var(--paper));
+      color: var(--blueprint);
+      text-align: center;
+      cursor: pointer;
+    }
+    .icon-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .icon-url-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+    .icon-help, .icon-message { margin: 0; font-size: 11px; line-height: 1.4; font-weight: 700; }
+    .icon-help { color: var(--muted); }
+    .icon-message { min-height: 16px; color: var(--muted); }
+    .icon-message.error { color: var(--red); }
+    .icon-message.success { color: var(--teal); }
+    .icon-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .icon-remove { min-height: 32px; padding: 0 9px; }
     .script-recovery-head {
       display: flex;
       align-items: center;
@@ -565,6 +665,9 @@ export function renderHome() {
       .shell { width: min(100vw - 18px, 1440px); padding-top: 10px; }
       .grid-2, .result-strip { grid-template-columns: 1fr; }
       .argument-field { grid-template-columns: 1fr; }
+      .icon-panel { grid-template-columns: 72px minmax(0, 1fr); }
+      .icon-preview { width: 68px; border-radius: 16px; }
+      .icon-url-row { grid-template-columns: 1fr; }
       .script-recovery-head { align-items: stretch; }
       .panel-body { padding: 10px; }
       h1 { font-size: 31px; }
@@ -619,6 +722,44 @@ export function renderHome() {
             <label>模块/规则集 URL
               <input name="url" placeholder="https://example.com/module.plugin 或 ruleset.list">
             </label>
+            <details class="icon-config" id="icon-config">
+              <summary>
+                <span class="icon-summary-copy">
+                  <strong>自定义图标（可选）</strong>
+                  <small>上传图片或导入 URL，自动嵌入所有生成的 AMRS / ARRS。</small>
+                </span>
+                <span class="icon-summary-state" id="icon-summary-state">未设置</span>
+              </summary>
+              <div class="icon-panel">
+                <div class="icon-preview" id="icon-preview" aria-label="图标预览">
+                  <span id="icon-placeholder">${icon("image")}</span>
+                  <img id="icon-preview-image" alt="自定义规则图标预览" hidden>
+                </div>
+                <div class="icon-controls">
+                  <div class="icon-tabs" role="tablist" aria-label="图标来源">
+                    <button class="icon-tab active" id="icon-upload-tab" type="button" role="tab" aria-selected="true">上传图片</button>
+                    <button class="icon-tab" id="icon-url-tab" type="button" role="tab" aria-selected="false">图片 URL</button>
+                  </div>
+                  <div class="icon-pane" id="icon-upload-pane" role="tabpanel">
+                    <label class="icon-drop" for="icon-file">
+                      <input id="icon-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+                      <span>点击选择 PNG / JPEG / WebP / GIF</span>
+                    </label>
+                  </div>
+                  <div class="icon-pane" id="icon-url-pane" role="tabpanel" hidden>
+                    <div class="icon-url-row">
+                      <input id="icon-url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/icon.png" aria-label="图标 URL">
+                      <button class="btn" id="icon-load-url" type="button">读取图标</button>
+                    </div>
+                  </div>
+                  <p class="icon-help" id="icon-help">最大 256 KiB；上传图片使用快照，URL 图标可跟随动态订阅。</p>
+                  <div class="icon-footer">
+                    <p class="icon-message" id="icon-message" role="status" aria-live="polite"></p>
+                    <button class="btn icon-remove" id="icon-remove" type="button" hidden>移除图标</button>
+                  </div>
+                </div>
+              </div>
+            </details>
             <div class="argument-config">
               <div class="argument-head">
                 <div class="argument-title">
@@ -707,6 +848,19 @@ export function renderHome() {
     const preview = document.querySelector("#preview");
     const sourceInput = document.querySelector('textarea[name="source"]');
     const urlInput = document.querySelector('input[name="url"]');
+    const iconConfig = document.querySelector("#icon-config");
+    const iconSummaryState = document.querySelector("#icon-summary-state");
+    const iconUploadTab = document.querySelector("#icon-upload-tab");
+    const iconUrlTab = document.querySelector("#icon-url-tab");
+    const iconUploadPane = document.querySelector("#icon-upload-pane");
+    const iconUrlPane = document.querySelector("#icon-url-pane");
+    const iconFileInput = document.querySelector("#icon-file");
+    const iconUrlInput = document.querySelector("#icon-url");
+    const iconLoadUrl = document.querySelector("#icon-load-url");
+    const iconPreviewImage = document.querySelector("#icon-preview-image");
+    const iconPlaceholder = document.querySelector("#icon-placeholder");
+    const iconMessage = document.querySelector("#icon-message");
+    const iconRemove = document.querySelector("#icon-remove");
     const argumentFieldsEl = document.querySelector("#argument-fields");
     const inspectButton = document.querySelector("#inspect");
     const scriptOverridesEl = document.querySelector("#script-overrides");
@@ -737,6 +891,13 @@ export function renderHome() {
     let cacheBustValue = "";
     let sourceLoadedFromUrl = "";
     let refreshTimer = 0;
+    let iconMode = "upload";
+    let uploadedIconBase64 = "";
+    let uploadedIconMime = "";
+    let validatedIconUrl = "";
+    let remoteIconBase64 = "";
+    let remoteIconMime = "";
+    let remoteIconBytes = 0;
 
     const savedTheme = localStorage.getItem("anywhere-converter-theme");
     const initialTheme = savedTheme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
@@ -747,6 +908,45 @@ export function renderHome() {
       localStorage.setItem("anywhere-converter-theme", next);
       setTheme(next);
     });
+
+    iconUploadTab.addEventListener("click", () => setIconMode("upload"));
+    iconUrlTab.addEventListener("click", () => setIconMode("url"));
+    iconFileInput.addEventListener("change", async () => {
+      const file = iconFileInput.files?.[0];
+      if (!file) return;
+      setIconMessage("正在读取图片…");
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (bytes.length > 256 * 1024) throw new Error("图片超过 256 KiB 上限，请更换更小的图标。");
+        const mimeType = imageMimeType(bytes);
+        if (!mimeType) throw new Error("只支持 PNG、JPEG、WebP 或 GIF 图片。");
+        uploadedIconBase64 = bytesToBase64(bytes);
+        uploadedIconMime = mimeType;
+        validatedIconUrl = "";
+        showIconPreview(uploadedIconBase64, mimeType, bytes.length, "已上传");
+        scheduleReconvert();
+      } catch (error) {
+        uploadedIconBase64 = "";
+        uploadedIconMime = "";
+        clearIconPreview();
+        setIconMessage(error.message, "error");
+      }
+    });
+    iconLoadUrl.addEventListener("click", () => loadRemoteIcon().catch(() => {}));
+    iconUrlInput.addEventListener("input", () => {
+      validatedIconUrl = "";
+      remoteIconBase64 = "";
+      remoteIconMime = "";
+      remoteIconBytes = 0;
+      clearIconPreview();
+      setIconMessage(iconUrlInput.value.trim() ? "点击“读取图标”检查远程图片。" : "");
+    });
+    iconUrlInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      loadRemoteIcon().catch(() => {});
+    });
+    iconRemove.addEventListener("click", () => resetCustomIcon());
 
     const sampleSource = String.raw\`#!name=Demo Ad Cleanup
 #!desc=最小转换示例
@@ -832,6 +1032,7 @@ $done({ body: JSON.stringify(obj) });\`;
       copyFile.disabled = true;
       copyJson.disabled = true;
       scriptOverridesEl.replaceChildren();
+      resetCustomIcon();
       renderArgumentDefinitions({}, {});
       setStatus("waiting");
       setMetrics();
@@ -896,6 +1097,19 @@ $done({ body: JSON.stringify(obj) });\`;
       preview.textContent = "Converting...";
 
       clearRemoteSourceIfUrlChanged();
+      if (iconMode === "url" && iconUrlInput.value.trim() && validatedIconUrl !== iconUrlInput.value.trim()) {
+        try {
+          await loadRemoteIcon({ quiet: true });
+        } catch (error) {
+          lastJson = null;
+          setStatus("blocked");
+          signalsEl.replaceChildren(chip("icon failed"));
+          preview.classList.add("error");
+          preview.textContent = error.message;
+          submit.disabled = false;
+          return;
+        }
+      }
       const raw = Object.fromEntries(new FormData(form).entries());
       const argumentOverrides = collectArgumentOverrides();
       const source = sourceValueForRequest();
@@ -913,6 +1127,8 @@ $done({ body: JSON.stringify(obj) });\`;
             mode: raw.aggressive === "true" ? "aggressive" : "compat",
             arguments: argumentOverrides,
             preserveParameters: raw.preserveParameters === "true",
+            iconLightBase64: iconMode === "upload" ? uploadedIconBase64 : "",
+            iconUrl: iconMode === "url" ? iconUrlInput.value.trim() : "",
             scriptTextByURL: collectScriptTextByURL(),
             fetchScripts: raw.fetchScripts === "true",
             cacheBust: cacheBustValue,
@@ -950,6 +1166,127 @@ $done({ body: JSON.stringify(obj) });\`;
       healthEl.title = "Worker health unavailable · 打开 Anywhere Hub";
     });
 
+    function setIconMode(mode) {
+      iconMode = mode === "url" ? "url" : "upload";
+      const upload = iconMode === "upload";
+      iconUploadTab.classList.toggle("active", upload);
+      iconUrlTab.classList.toggle("active", !upload);
+      iconUploadTab.setAttribute("aria-selected", String(upload));
+      iconUrlTab.setAttribute("aria-selected", String(!upload));
+      iconUploadPane.hidden = !upload;
+      iconUrlPane.hidden = upload;
+      if (upload && uploadedIconBase64) {
+        showIconPreview(uploadedIconBase64, uploadedIconMime, base64ByteLength(uploadedIconBase64), "已上传");
+      } else if (!upload && remoteIconBase64) {
+        showIconPreview(remoteIconBase64, remoteIconMime, remoteIconBytes, "URL 已读取");
+      } else {
+        clearIconPreview();
+        setIconMessage(!upload && iconUrlInput.value.trim() ? "点击“读取图标”检查远程图片。" : "");
+      }
+    }
+
+    async function loadRemoteIcon(options = {}) {
+      const url = iconUrlInput.value.trim();
+      if (!url) {
+        const error = new Error("请填写图片 URL。");
+        setIconMessage(error.message, "error");
+        throw error;
+      }
+      iconLoadUrl.disabled = true;
+      if (!options.quiet) setIconMessage("正在读取远程图片…");
+      try {
+        const response = await fetch("/api/icon", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ iconUrl: url }),
+        });
+        const json = await readJSONResponse(response, "icon");
+        if (!response.ok) throw new Error(json.detail || json.error || "图标读取失败。");
+        validatedIconUrl = url;
+        remoteIconBase64 = json.base64 || "";
+        remoteIconMime = json.mimeType || "image/png";
+        remoteIconBytes = Number(json.bytes) || base64ByteLength(remoteIconBase64);
+        showIconPreview(remoteIconBase64, remoteIconMime, remoteIconBytes, "URL 已读取");
+        if (!options.quiet) scheduleReconvert();
+        return json;
+      } catch (error) {
+        validatedIconUrl = "";
+        remoteIconBase64 = "";
+        remoteIconMime = "";
+        remoteIconBytes = 0;
+        clearIconPreview();
+        setIconMessage(error.message, "error");
+        throw error;
+      } finally {
+        iconLoadUrl.disabled = false;
+      }
+    }
+
+    function showIconPreview(encoded, mimeType, bytes, label) {
+      iconPreviewImage.src = "data:" + mimeType + ";base64," + encoded;
+      iconPreviewImage.hidden = false;
+      iconPlaceholder.hidden = true;
+      iconRemove.hidden = false;
+      iconConfig.classList.add("has-icon");
+      iconSummaryState.textContent = label;
+      setIconMessage(label + " · " + formatByteSize(bytes), "success");
+    }
+
+    function clearIconPreview() {
+      iconPreviewImage.removeAttribute("src");
+      iconPreviewImage.hidden = true;
+      iconPlaceholder.hidden = false;
+      iconRemove.hidden = true;
+      iconConfig.classList.remove("has-icon");
+      iconSummaryState.textContent = "未设置";
+    }
+
+    function resetCustomIcon() {
+      uploadedIconBase64 = "";
+      uploadedIconMime = "";
+      validatedIconUrl = "";
+      remoteIconBase64 = "";
+      remoteIconMime = "";
+      remoteIconBytes = 0;
+      iconFileInput.value = "";
+      iconUrlInput.value = "";
+      setIconMode("upload");
+      setIconMessage("");
+      scheduleReconvert();
+    }
+
+    function setIconMessage(message, kind = "") {
+      iconMessage.textContent = message || "";
+      iconMessage.className = "icon-message" + (kind ? " " + kind : "");
+    }
+
+    function imageMimeType(bytes) {
+      if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+        && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) return "image/png";
+      if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+      if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38
+        && (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61) return "image/gif";
+      if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+        && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+      return "";
+    }
+
+    function bytesToBase64(bytes) {
+      let binary = "";
+      const chunkSize = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+      }
+      return btoa(binary);
+    }
+
+    function base64ByteLength(value) {
+      const text = String(value || "").replace(/\s+/g, "");
+      if (!text) return 0;
+      const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
+      return text.length / 4 * 3 - padding;
+    }
+
     function setTheme(theme) {
       document.body.dataset.theme = theme === "dark" ? "dark" : "light";
       themeToggle.title = theme === "dark" ? "切换浅色模式" : "切换深色模式";
@@ -968,6 +1305,8 @@ $done({ body: JSON.stringify(obj) });\`;
         signalsEl.append(chip(text));
       };
       appendSignal(json.dynamicImportUrl ? "动态订阅" : "快照链接");
+      if (json.icon?.source === "upload") appendSignal("上传图标 · 快照");
+      if (json.icon?.source === "url") appendSignal("URL 图标 · 动态可用");
       if ((json.dynamicFiles || []).some((file) => /[?&]cacheBust=/.test(file.url || ""))) appendSignal("已刷新缓存");
       if (json.sourceKind === "ruleset") appendSignal("规则集");
       if (summary.validationErrors) appendSignal("验证错误 " + summary.validationErrors);
@@ -1717,6 +2056,7 @@ $done({ body: JSON.stringify(obj) });\`;
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4a1 1 0 0 1-1-1V4h11a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     sliders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M2 14h4M10 8h4M18 16h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    image: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="8.5" cy="9" r="1.5" fill="currentColor"/><path d="m4 17 5-5 3 3 2-2 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
     github: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 0 1.6 1.1 1.6 1.1.9 1.5 2.4 1.1 2.9.8.1-.7.4-1.1.7-1.4-2.2-.3-4.6-1.1-4.6-5a3.9 3.9 0 0 1 1-2.7c-.1-.3-.5-1.3.1-2.7 0 0 .9-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .6 1.4.2 2.4.1 2.7a3.9 3.9 0 0 1 1 2.7c0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.8V21c0 .3.2.6.7.5A10 10 0 0 0 12 2z" fill="currentColor"/></svg>',
     moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 7 7 0 1 0 20 15.5z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" fill="none" stroke="currentColor" stroke-width="2"/></svg>',

@@ -46,6 +46,7 @@ Reads module metadata, rule-set kind, and `[Argument]` definitions without gener
   "arguments": {
     "smzdm_enable": false
   },
+  "iconUrl": "https://example.com/icon.png",
   "scriptTextByURL": {
     "https://example.com/remote-script.js": "const body = $response.body; $done({ body });"
   },
@@ -69,6 +70,7 @@ Response includes:
 - `snapshotImportUrl` only when the conversion must fall back to hash-backed generated files
 - `source` when `includeSource=true`
 - `summary.scriptRecoveryUrls` when remote script source could not be fetched and can be supplied through `scriptTextByURL`
+- `icon` when an uploaded or URL-backed custom icon was applied
 
 The browser UI requests `includeContent=true` and can download the generated files directly from that response. `下载文件` saves the selected `.amrs` / `.arrs`; `下载全部` creates a client-side zip. These downloads do not hit `/sub/*` or `/r/*`, so they are the preferred path when the user wants to reduce Worker subscription traffic.
 
@@ -110,6 +112,8 @@ Returns generated `.amrs` or `.arrs` content from a fallback conversion snapshot
 - Remote script fetching is on by default. Set `fetchScripts=false` only for offline/native diagnostics.
 - `MAX_SCRIPT_FETCHES` caps how many unique remote scripts one conversion fetches before emitting `script-fetch-count-exceeded`; keep it below your Worker subrequest limit for public deployments. Set it to `0` only for trusted private Workers where the platform limit is known.
 - Remote `Map Local data-type=file` text resources use independent `MAX_MAP_LOCAL_BYTES`, `MAX_TOTAL_MAP_LOCAL_BYTES`, and `MAX_MAP_LOCAL_FETCHES` budgets. Unknown or binary-looking files are not downloaded.
+- Custom icons accept PNG, JPEG, WebP, and GIF only. The Worker validates image signatures, blocks localhost/private targets on every redirect, and limits downloaded bytes with `MAX_ICON_BYTES` (never above Anywhere's 256 KiB cap).
+- `iconUrl` remains in dynamic `/sub/*` URLs, so URL-backed icons follow refreshes. `iconLightBase64` is embedded directly and therefore intentionally switches the result to a snapshot import URL.
 - `scriptTextByURL` can provide trusted script text for remote script URLs that are blocked, deleted, or protected by anti-bot rules. Values are bounded by `MAX_SCRIPT_BYTES` and `MAX_TOTAL_SCRIPT_BYTES`.
 - Dynamic links cannot carry `scriptTextByURL`; conversions with manual script bodies use `snapshotImportUrl` as the import target.
 - The browser UI exposes the same source recovery path: failed script URLs are shown as "补脚本" chips and can be filled in without editing JSON.

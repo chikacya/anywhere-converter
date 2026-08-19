@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { convertAny, convertModule, convertModuleAsync, convertRuleSet, validateAnywhereOutput, internals } from "../src/core.mjs";
+import { convertAny, convertModule, convertModuleAsync, convertRuleSet, validateAnywhereOutput, internals, normalizeIconBase64 } from "../src/core.mjs";
+
+const ICON_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3z8AAAAASUVORK5CYII=";
 
 test("converts stable routing and URL-REGEX reject rules", () => {
   const source = `
@@ -21,6 +23,41 @@ URL-REGEX, "^http:\\/\\/1\\.2\\.3\\.4\\/dns\\?", REJECT
   assert.match(arrs.content, /2, dns\.example\.com/);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
   assert.deepEqual(validateAnywhereOutput(arrs), []);
+});
+
+test("embeds one validated icon into every generated AMRS and ARRS file", () => {
+  const source = `
+#!name = Icon Coverage
+[Rule]
+DOMAIN-SUFFIX, ads.example.com, REJECT
+[Rewrite]
+^https?:\\/\\/api\\.example\\.com\\/ad reject-dict
+[MITM]
+hostname = api.example.com
+`;
+  const result = convertModule(source, { iconLightBase64: ICON_PNG_BASE64 });
+  assert(result.files.length >= 2);
+  for (const file of result.files) {
+    assert.match(file.content, new RegExp(`^icon-light = ${ICON_PNG_BASE64}$`, "m"));
+    assert.deepEqual(validateAnywhereOutput(file), []);
+  }
+});
+
+test("rejects invalid and oversized custom icons without emitting icon headers", () => {
+  const invalid = convertModule(`#!name = Invalid Icon\n[Rule]\nDOMAIN, ads.example.com, REJECT`, { iconLightBase64: "not-an-image" });
+  assert(invalid.diagnostics.some((item) => item.code === "invalid-custom-icon"));
+  assert(!invalid.files[0].content.includes("icon-light ="));
+
+  const oversized = Buffer.concat([Buffer.from(ICON_PNG_BASE64, "base64"), Buffer.alloc(256 * 1024)]).toString("base64");
+  const result = normalizeIconBase64(oversized);
+  assert.match(result.error, /超过/);
+});
+
+test("normalizes data URI custom icons", () => {
+  const result = normalizeIconBase64(`data:image/png;base64,${ICON_PNG_BASE64}`);
+  assert.equal(result.base64, ICON_PNG_BASE64);
+  assert.equal(result.mimeType, "image/png");
+  assert(result.bytes > 0);
 });
 
 test("converts plain Loon Surge rule set to arrs with selected routing", () => {

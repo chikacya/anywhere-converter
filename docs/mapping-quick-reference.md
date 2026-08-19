@@ -77,11 +77,13 @@ Status:
 | Loon/Surge | Anywhere | Status | Notes |
 | --- | --- | --- | --- |
 | `response-body-replace-regex search replacement` | `1, 4, pattern, search, replacement` | stable | Replacement may use `$1` / `${10}` capture templates; Anywhere expands them natively. |
+| `[Body Rewrite] http-response pattern search replacement` | `1, 4, pattern, search, replacement` | stable | Surge shorthand for response-body regex replacement; `http-request` maps to request phase. |
 | `"list":\[.+\] -> "list":[]` | `replace-recursive list []` | stable | Generic JSON-array cleanup heuristic. |
 | `response-body-json-del a.b` | `1, 5, pattern, delete, $.a.b` | stable | Loose path to JSONPath. |
 | `response-body-json-replace a true` | `1, 5, pattern, replace, $.a, true` | stable | Value kept as JSON literal/text. |
 | jq `del(.a.b)` | `body-json delete $.a.b` | stable | Whitelisted jq subset. |
 | jq `delpaths([["a","b"]])` | `body-json delete $.a.b` | stable | Single-path subset. |
+| jq `if (getpath(parent) \| has("a")) then (setpath(parent + ["a"]; value)) else . end` | `body-json replace <path> value` | stable | The checked parent plus key must exactly equal the replaced path; this preserves jq's leave-unchanged behavior when the member is absent. |
 | jq `del(.items[] | select(.x == "ad"))` | `remove-where-field-in $.items x ["ad"]` | stable | Single array path and equality only. |
 | jq `.items |= map(select(.x != "ad"))` | `remove-where-field-in $.items x ["ad"]` | stable | Single field blacklist, including `and` for the same field. |
 | jq `.items |= map(select(has("ad") | not))` | `remove-where-key-exists $.items ad` | stable | Single array path only. |

@@ -1259,6 +1259,14 @@ function convertRewriteLine(item) {
 }
 
 function convertBodyRewriteLine(item) {
+  const typedRewrite = splitLeadingToken(item.text);
+  const typedAction = typedRewrite?.[0]?.toLowerCase();
+  if (typedAction === "http-response" || typedAction === "http-request") {
+    const patternAndBody = splitLeadingToken(typedRewrite[1]);
+    if (!patternAndBody) return null;
+    return bodyReplaceRule(typedAction === "http-response" ? 1 : 0, patternAndBody[0], splitBodyReplaceParts(patternAndBody[1]));
+  }
+
   const rawRewrite = parseRewriteCommand(item.text);
   if (rawRewrite?.action === "http-response-replace-regex" || rawRewrite?.action === "response-body-replace-regex") {
     return bodyReplaceRule(1, rawRewrite.pattern, splitBodyReplaceParts(rawRewrite.rest));
@@ -2800,6 +2808,9 @@ function jqToBodyJson(phase, pattern, rawJq) {
   let match = jq.match(/^del\(\s*(\.[^)]+?)\s*\)$/);
   if (match) return { phase, op: 5, pattern: urlGate(pattern), fields: ["delete", jsonPathFromJq(match[1])] };
 
+  const conditionalReplace = jqConditionalExistingPathReplace(phase, pattern, jq);
+  if (conditionalReplace) return conditionalReplace;
+
   match = jq.match(/^del\(\s*(\.[A-Za-z0-9_.$[\]"'-]+)\[\]\s*\|\s*select\(\s*\.([A-Za-z0-9_$-]+)\s*==\s*(["'][^"']+["'])\s*\)\s*\)$/);
   if (match) {
     return {
@@ -2825,6 +2836,42 @@ function jqToBodyJson(phase, pattern, rawJq) {
     return { phase, op: 5, pattern: urlGate(pattern), fields: ["replace", jsonPathFromJq(left), match[1].trim()] };
   }
   return null;
+}
+
+function jqConditionalExistingPathReplace(phase, pattern, jq) {
+  const match = jq.match(/^if\s*\(\s*getpath\(\s*(\[[^\]]*\])\s*\)\s*\|\s*has\(\s*(["'][^"']+["'])\s*\)\s*\)\s*then\s*\(\s*setpath\(\s*(\[[^\]]*\])\s*;\s*([\s\S]+?)\s*\)\s*\)\s*else\s*\.\s*end$/);
+  if (!match) return null;
+  const parentPath = parseJqPathArray(match[1]);
+  const checkedKey = unquote(match[2]);
+  const replacedPath = parseJqPathArray(match[3]);
+  if (!parentPath || !replacedPath || !checkedKey) return null;
+  const expectedPath = [...parentPath, checkedKey];
+  if (JSON.stringify(replacedPath) !== JSON.stringify(expectedPath)) return null;
+  const value = parseJsLiteralForRule(match[4]);
+  if (value == null) return null;
+  const path = jsonPathFromParts(replacedPath);
+  return { phase, op: 5, pattern: urlGate(pattern), fields: ["replace", path, value] };
+}
+
+function parseJqPathArray(raw) {
+  try {
+    const parts = JSON.parse(raw);
+    if (!Array.isArray(parts)) return null;
+    if (!parts.every((part) => typeof part === "string" || (Number.isInteger(part) && part >= 0))) return null;
+    return parts;
+  } catch {
+    return null;
+  }
+}
+
+function jsonPathFromParts(parts) {
+  let path = "$";
+  for (const part of parts) {
+    if (typeof part === "number") path += `[${part}]`;
+    else if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(part)) path += `.${part}`;
+    else path += `[${JSON.stringify(part)}]`;
+  }
+  return path;
 }
 
 function jqMapSelectRemoval(phase, pattern, jq) {

@@ -609,6 +609,18 @@ hostname = api.example.com
 
 test("jq helper only accepts simple supported subset", () => {
   assert.deepEqual(internals.jqToBodyJson(1, "^https://a.test", "del(.data.banner)")?.fields, ["delete", "$.data.banner"]);
+  assert.deepEqual(
+    internals.jqToBodyJson(1, "^https://a.test", 'if (getpath([]) | has("data")) then (setpath(["data"]; {})) else . end')?.fields,
+    ["replace", "$.data", "{}"],
+  );
+  assert.deepEqual(
+    internals.jqToBodyJson(1, "^https://a.test", 'if (getpath(["items",0]) | has("visible")) then (setpath(["items",0,"visible"]; false)) else . end')?.fields,
+    ["replace", "$.items[0].visible", "false"],
+  );
+  assert.equal(
+    internals.jqToBodyJson(1, "^https://a.test", 'if (getpath([]) | has("data")) then (setpath(["other"]; {})) else . end'),
+    null,
+  );
   assert.deepEqual(internals.jqToBodyJson(1, "^https://a.test", "delpaths([[\"data\",\"banner\"]])")?.fields, ["delete", "$.data.banner"]);
   assert.deepEqual(internals.jqToBodyJson(1, "^https://a.test", ".items |= map(select(.type != \"ad\"))")?.fields, ["remove-where-field-in", "$.items", "type", "[\"ad\"]"]);
   assert.deepEqual(internals.jqToBodyJson(1, "^https://a.test", ".items |= map(select(.type != \"ad\" and .type != \"banner\"))")?.fields, ["remove-where-field-in", "$.items", "type", "[\"ad\",\"banner\"]"]);
@@ -616,6 +628,22 @@ test("jq helper only accepts simple supported subset", () => {
   assert.deepEqual(internals.jqToBodyJson(1, "^https://a.test", ".items |= map(select(has(\"adCategory\") | not))")?.fields, ["remove-where-key-exists", "$.items", "adCategory"]);
   assert.equal(internals.jqToBodyJson(1, "^https://a.test", ".items |= map(select(.ad|not))"), null);
   assert.equal(internals.jqToBodyJson(1, "^https://a.test", ".items |= map(select(.title | test(\"ad\"; \"i\") | not))"), null);
+});
+
+test("converts conditional existing-path jq setpath to native replace", () => {
+  const result = convertModule(`
+#!name=ZheLiBan
+[Body Rewrite]
+http-response-jq ^https?:\\/\\/portal\\.zjzwfw\\.gov\\.cn\\/app_api\\/appHome\\/selectStartPic 'if (getpath([]) | has("data")) then (setpath(["data"]; {})) else . end'
+[MITM]
+hostname = %APPEND% portal.zjzwfw.gov.cn
+`);
+  const amrs = result.files.find((file) => file.type === "amrs");
+  assert(amrs);
+  const line = amrs.content.split("\n").find((item) => item.startsWith("1, 5,"));
+  assert.deepEqual(internals.parseCsv(line).slice(3), ["replace", "$.data", "{}"]);
+  assert.equal(result.report.status, "stable");
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 
 test("converts supported complex jq filters to generated JSON scripts", () => {
@@ -655,6 +683,21 @@ hostname = mobile.yangkeduo.com
   assert.doesNotMatch(amrs.content, /accept-encoding, identity/);
   const bodyReplaceLine = amrs.content.split("\n").find((line) => line.startsWith("1, 5,"));
   assert.deepEqual(internals.parseCsv(bodyReplaceLine).slice(3), ["replace-recursive", "list", "[]"]);
+  assert.deepEqual(validateAnywhereOutput(amrs), []);
+});
+
+test("converts Surge Body Rewrite http-response shorthand", () => {
+  const result = convertModule(`
+#!name = Body Rewrite Shorthand
+[Body Rewrite]
+http-response ^https?:\\/\\/api\\.example\\.com\\/config "splash":true "splash":false
+[MITM]
+hostname = api.example.com
+`);
+  const amrs = result.files.find((file) => file.type === "amrs");
+  const line = amrs.content.split("\n").find((item) => item.startsWith("1, 4,"));
+  assert.deepEqual(internals.parseCsv(line).slice(3), ['"splash":true', '"splash":false']);
+  assert.equal(result.report.status, "stable");
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 

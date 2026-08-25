@@ -9,8 +9,8 @@ export function renderHome() {
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Anywhere">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icons/anywhere-converter-app-icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="/icons/anywhere-converter-app-icon-180.png">
+  <link rel="icon" href="/icons/anywhere-converter-app-icon-v2-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/anywhere-converter-app-icon-v2-180.png">
   <title>Anywhere Converter</title>
   <style>
     :root {
@@ -881,7 +881,7 @@ export function renderHome() {
   <div class="shell">
     <header>
       <div class="brand">
-        <img class="brand-mark" src="/icons/anywhere-converter-app-icon.png" width="44" height="44" alt="">
+        <img class="brand-mark" src="/icons/anywhere-converter-app-icon-v2-512.png" width="44" height="44" alt="">
         <div>
           <h1>Anywhere Converter</h1>
           <p class="subtitle">把 Loon / Surge 插件、模块、脚本和规则集，转化为轻量、可导入的 Anywhere 配置。</p>
@@ -1131,7 +1131,7 @@ export function renderHome() {
   </div>
 
   <nav class="mobile-tabbar" aria-label="主导航">
-    <button class="app-tab" type="button" data-app-view="convert" aria-selected="true" aria-current="page">${icon("wand")}<span>转换器</span></button>
+    <button class="app-tab" type="button" data-app-view="convert" aria-selected="true" aria-current="page">${icon("convert")}<span>转换器</span></button>
     <button class="app-tab" type="button" data-app-view="studio" aria-selected="false">${icon("sliders")}<span>规则集工坊</span></button>
   </nav>
 
@@ -2792,6 +2792,7 @@ $done({ body: JSON.stringify(obj) });\`;
     "file-plus": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M14 2v6h6M12 18v-6M9 15h6" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 16h10l1-16M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     wand: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 4 5 5M4 20 20 4M12 5l1-3 1 3 3 1-3 1-1 3-1-3-3-1zM5 14l1-2 1 2 2 1-2 1-1 2-1-2-2-1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    convert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h13m0 0-3-3m3 3-3 3M19 17H6m0 0 3-3m-3 3 3 3" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM10 18h4" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4a1 1 0 0 1-1-1V4h11a1 1 0 0 1 1 1v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
     download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
@@ -2815,15 +2816,15 @@ export function renderManifest() {
     theme_color: "#f3f5fa",
     lang: "zh-CN",
     icons: [
-      { src: "/icons/anywhere-converter-app-icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icons/anywhere-converter-app-icon.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+      { src: "/icons/anywhere-converter-app-icon-v2-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icons/anywhere-converter-app-icon-v2-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
     ],
   });
 }
 
 export function renderServiceWorker() {
-  return `const CACHE = "anywhere-converter-shell-v2";
-const ASSETS = ["/", "/manifest.webmanifest", "/icons/icon-192.svg", "/icons/icon-512.svg"];
+  return `const CACHE = "anywhere-converter-shell-v3";
+const ASSETS = ["/", "/manifest.webmanifest", "/icons/anywhere-converter-app-icon-v2-180.png", "/icons/anywhere-converter-app-icon-v2-192.png", "/icons/anywhere-converter-app-icon-v2-512.png"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (event) => {

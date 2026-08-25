@@ -1122,7 +1122,7 @@ export function renderHome() {
           <div class="studio-actions">
             <button class="btn primary" id="studio-save" type="button">保存并发布</button>
             <button class="btn" id="studio-copy-subscription" type="button">复制订阅链接</button>
-            <a class="btn" id="studio-open-subscription" target="_blank" rel="noopener" hidden>打开 ARRS</a>
+            <a class="btn studio-import" id="studio-import" hidden>${icon("phone")}导入 Anywhere</a>
           </div>
           <p class="studio-status" id="studio-status" role="status" aria-live="polite"></p>
         </section>
@@ -2363,7 +2363,7 @@ $done({ body: JSON.stringify(obj) });\`;
     const studioEditorTitle = document.querySelector("#studio-editor-title");
     const studioRuleType = document.querySelector("#studio-rule-type");
     const studioRuleValue = document.querySelector("#studio-rule-value");
-    const studioOpenSubscription = document.querySelector("#studio-open-subscription");
+    const studioImport = document.querySelector("#studio-import");
     let studioWorkspaceId = workspaceIdFromPath();
     let studioKey = workspaceKeyFromFragment() || (studioWorkspaceId ? localStorage.getItem("anywhere-converter-workspace-key:" + studioWorkspaceId) : "");
     let studioWorkspace = null;
@@ -2542,9 +2542,9 @@ $done({ body: JSON.stringify(obj) });\`;
       studioSource.value = studioRuleSet.content || "";
       renderStudioIconPreview();
       studioSummary.textContent = (studioRuleSet.ruleCount || 0).toLocaleString() + " 条 · " + formatStudioBytes(studioRuleSet.bytes || 0) + " · v" + (studioRuleSet.revision || 1);
-      const subscription = studioSubscriptionUrl();
-      studioOpenSubscription.href = subscription;
-      studioOpenSubscription.hidden = !subscription;
+      const importUrl = studioImportUrl();
+      studioImport.href = importUrl;
+      studioImport.hidden = !importUrl;
     }
 
     async function saveStudioRuleSet() {
@@ -2742,6 +2742,7 @@ $done({ body: JSON.stringify(obj) });\`;
     function workspaceKeyFromFragment() { return new URLSearchParams(location.hash.slice(1)).get("key") || ""; }
     function currentEditUrl() { return studioWorkspaceId && studioKey ? location.origin + "/editor/" + studioWorkspaceId + "#key=" + studioKey : ""; }
     function studioSubscriptionUrl() { return studioWorkspaceId && studioRuleSet ? location.origin + "/s/" + studioWorkspaceId + "/" + studioRuleSet.id + "/rules.arrs" : ""; }
+    function studioImportUrl() { const subscription = studioSubscriptionUrl(); return subscription ? "anywhere://add-rule-set?link=" + encodeURIComponent(subscription) : ""; }
     function studioStatusText(message, isError = false) { studioStatus.textContent = message; studioStatus.classList.toggle("error", Boolean(isError)); }
     function formatStudioBytes(value) { return value < 1024 ? value + " B" : (value / 1024).toFixed(value < 1024 * 1024 ? 1 : 2) + (value < 1024 * 1024 ? " KiB" : " MiB"); }
     async function copyText(value, success) {

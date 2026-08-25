@@ -710,14 +710,30 @@ export function renderHome() {
     .brand-mark svg { width: 28px; height: 28px; }
     h1 { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif; font-size: clamp(23px, 3vw, 34px); line-height: 1.04; letter-spacing: -.045em; }
     .subtitle { margin-top: 5px; font-size: 13px; max-width: 690px; }
-    .header-actions { gap: 7px; }
+    .header-actions { display: inline-flex; align-items: center; gap: 2px; }
     .top-link, .btn { border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); border-radius: 14px; box-shadow: none; font-weight: 720; transition: transform .22s ease, background .22s ease, box-shadow .22s ease; }
     .top-link { min-height: 36px; background: color-mix(in srgb, var(--paper) 84%, transparent); }
     .btn { min-height: 40px; padding: 0 13px; background: color-mix(in srgb, var(--paper) 82%, transparent); }
     .btn.primary { border-color: transparent; background: linear-gradient(135deg, var(--ios-blue), #5e5ce6); box-shadow: 0 8px 18px rgba(0, 122, 255, .20); }
     .top-link:hover, .btn:hover:not(:disabled), .file-link:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(23, 32, 42, .10); }
-    .theme-toggle, .btn.theme-toggle { border-radius: 50%; background: var(--ios-fill); }
-    .theme-toggle .moon svg { transform: none; }
+    .header-actions .top-link { min-height: 40px; border: 0; background: transparent; box-shadow: none; }
+    .header-actions .top-link:hover, .header-actions .top-link:focus-visible, .theme-toggle:hover, .theme-toggle:focus-visible { background: var(--ios-fill); box-shadow: none; transform: none; }
+    .hub-link { gap: 7px; border-radius: 13px; color: var(--ios-blue); font-size: 13px; font-weight: 680; padding: 0 10px; }
+    .health::before { display: none; }
+    .hub-orb { display: grid; width: 15px; height: 15px; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; }
+    .hub-orb::before { width: 5px; height: 5px; border-radius: 50%; background: currentColor; content: ""; }
+    .hub-arrow { margin-left: -2px; font-size: 15px; font-weight: 500; line-height: 1; }
+    .github-link { display: grid; width: 40px; min-width: 40px; place-items: center; border-radius: 50%; color: var(--ink); font-size: 0; padding: 0; }
+    .github-link svg { width: 19px; height: 19px; }
+    .theme-toggle { position: relative; display: grid; width: 40px; height: 40px; min-width: 40px; min-height: 40px; place-items: center; overflow: hidden; border: 0; border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent; transition: background 160ms ease-out, transform 100ms ease-out; }
+    .theme-toggle:active { transform: scale(.94); }
+    .theme-toggle .moon, .theme-toggle .sun { position: absolute; inset: 0; display: grid; place-items: center; }
+    .theme-toggle .moon::before { width: 17px; height: 17px; border-radius: 50%; background: currentColor; content: ""; }
+    .theme-toggle .moon::after { position: absolute; width: 15px; height: 15px; border-radius: 50%; background: var(--ios-material); content: ""; transform: translate(5px, -4px); }
+    .theme-toggle .sun { display: none; }
+    .theme-toggle .sun svg { width: 19px; height: 19px; }
+    body[data-theme="dark"] .theme-toggle .moon { display: none; }
+    body[data-theme="dark"] .theme-toggle .sun { display: grid; }
     .app-tabs { display: none !important; }
     .app-tab { border: 0; background: transparent; cursor: pointer; }
     .workspace { gap: 14px; margin-top: 52px; }
@@ -814,6 +830,7 @@ export function renderHome() {
       .header-actions .health { display: none; }
       .top-link { font-size: 0; width: 38px; padding: 0; border-radius: 50%; }
       .top-link svg { width: 17px; height: 17px; }
+      .github-link, .theme-toggle { width: 38px; min-width: 38px; height: 38px; min-height: 38px; }
       .workspace { margin-top: 30px; }
       .converter-panel .panel-head { align-items: center; }
       .converter-panel .panel-body { padding: 12px; }
@@ -860,10 +877,10 @@ export function renderHome() {
         </div>
       </div>
       <div class="header-actions">
-        <a class="top-link health" id="health" href="https://anywhere-hub.chikacya.indevs.in/" target="_blank" rel="noopener">Anywhere Hub</a>
-        <a class="top-link github-link" href="https://github.com/chikacya/anywhere-converter" target="_blank" rel="noopener" title="访问 GitHub 源工程">${icon("github")}GitHub</a>
-        <button class="btn theme-toggle" id="theme-toggle" type="button" title="切换深色模式" aria-label="切换深色模式">
-          <span class="moon">${icon("moon")}</span>
+        <a class="top-link health hub-link" id="health" href="https://anywhere-hub.chikacya.indevs.in/" target="_blank" rel="noopener"><span class="hub-orb" aria-hidden="true"></span><span>Anywhere Hub</span><span class="hub-arrow" aria-hidden="true">↗</span></a>
+        <a class="top-link github-link" href="https://github.com/chikacya/anywhere-converter" target="_blank" rel="noopener" title="访问 GitHub 源工程" aria-label="访问 GitHub 源工程">${icon("github")}</a>
+        <button class="theme-toggle" id="theme-toggle" type="button" title="切换深色模式" aria-label="切换深色模式">
+          <span class="moon" aria-hidden="true"></span>
           <span class="sun">${icon("sun")}</span>
         </button>
       </div>

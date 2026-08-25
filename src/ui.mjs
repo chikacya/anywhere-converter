@@ -723,6 +723,7 @@ export function renderHome() {
     .hub-orb { display: grid; width: 15px; height: 15px; place-items: center; border: 1.5px solid currentColor; border-radius: 50%; }
     .hub-orb::before { width: 5px; height: 5px; border-radius: 50%; background: currentColor; content: ""; }
     .hub-arrow { margin-left: -2px; font-size: 15px; font-weight: 500; line-height: 1; }
+    .mobile-hub-link { display: none; }
     .github-link { display: grid; width: 40px; min-width: 40px; place-items: center; border-radius: 50%; color: var(--ink); font-size: 0; padding: 0; }
     .github-link svg { width: 19px; height: 19px; }
     .theme-toggle { position: relative; display: grid; width: 40px; height: 40px; min-width: 40px; min-height: 40px; place-items: center; overflow: hidden; border: 0; border-radius: 50%; background: transparent; color: var(--ink); cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent; transition: background 160ms ease-out, transform 100ms ease-out; }
@@ -767,6 +768,7 @@ export function renderHome() {
     .converter-options .argument-config, .converter-options .script-recovery { border-radius: 15px; background: color-mix(in srgb, var(--paper) 76%, transparent); padding: 12px; }
     .conversion-actions { align-items: stretch; }
     .conversion-actions #submit { min-height: 46px; }
+    .output-panel .chips:empty, .output-panel .files:empty, .output-panel .explain:empty, .output-panel .diagnostics:empty { display: none; }
     input, textarea, select { border-color: color-mix(in srgb, var(--line) 88%, transparent); border-radius: 13px; background: color-mix(in srgb, var(--paper) 82%, transparent); }
     .preview { border: 0; border-radius: 17px; }
     .metric { border-radius: 17px; border-color: transparent; background: var(--ios-fill); }
@@ -831,8 +833,17 @@ export function renderHome() {
       .top-link { font-size: 0; width: 38px; padding: 0; border-radius: 50%; }
       .top-link svg { width: 17px; height: 17px; }
       .github-link, .theme-toggle { width: 38px; min-width: 38px; height: 38px; min-height: 38px; }
-      .workspace { margin-top: 30px; }
-      .converter-panel .panel-head { align-items: center; }
+      .mobile-hub-link { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; float: right; margin: 8px 3px -2px 0; border-radius: 11px; color: var(--ios-blue); font-size: 12px; font-weight: 680; padding: 0 8px; }
+      .mobile-hub-link:active { transform: scale(.97); }
+      .mobile-hub-link .hub-orb { width: 13px; height: 13px; }
+      .mobile-hub-link .hub-orb::before { width: 4px; height: 4px; }
+      .mobile-hub-link .hub-arrow { font-size: 14px; }
+      .workspace { clear: both; margin-top: 22px; }
+      .converter-panel .panel-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+      .converter-panel-title { min-width: 0; }
+      .converter-panel-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .converter-panel .panel-head .actions { justify-content: flex-end; flex-wrap: nowrap; margin-left: auto; }
+      .converter-panel .panel-head .actions .btn { flex: 0 0 auto; min-width: 0; padding: 0 9px; }
       .converter-panel .panel-body { padding: 12px; }
       .converter-source-step { gap: 10px; border-radius: 18px; padding: 13px; }
       .converter-source-step textarea { min-height: min(42dvh, 330px); max-height: 430px; }
@@ -844,7 +855,7 @@ export function renderHome() {
       .conversion-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
       .conversion-actions > * { width: 100%; min-width: 0; padding: 0 8px; font-size: 12px; }
       .conversion-actions #submit { grid-column: 1 / -1; min-height: 48px; font-size: 14px; }
-      .output-panel .panel-body { padding: 12px; }
+      .output-panel .panel-body { gap: 8px; padding: 12px; }
       .output-panel .result-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .output-panel .preview { min-height: 280px; max-height: 48dvh; }
       .studio-hero { padding: 2px 2px 0; align-items: start; flex-direction: column; margin-bottom: 16px; }
@@ -885,6 +896,7 @@ export function renderHome() {
         </button>
       </div>
     </header>
+    <a class="mobile-hub-link" href="https://anywhere-hub.chikacya.indevs.in/" target="_blank" rel="noopener"><span class="hub-orb" aria-hidden="true"></span><span>打开 Anywhere Hub</span><span class="hub-arrow" aria-hidden="true">↗</span></a>
 
     <main class="workspace">
       <section class="panel converter-panel" aria-labelledby="input-title">

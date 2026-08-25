@@ -2,6 +2,9 @@ name = "anywhere-module-converter"
 main = "src/worker.mjs"
 compatibility_date = "2026-06-25"
 
+[assets]
+directory = "./public"
+
 [vars]
 MAX_INPUT_BYTES = "524288"
 MAX_SCRIPT_BYTES = "1048576"
@@ -13,9 +16,20 @@ MAX_MAP_LOCAL_FETCHES = "16"
 MAX_ICON_BYTES = "262144"
 FETCH_CACHE_TTL_SECONDS = "900"
 DYNAMIC_CACHE_TTL_SECONDS = "900"
+RULESET_CACHE_TTL_SECONDS = "300"
 RATE_LIMIT_PER_MINUTE = "60"
 
 # Bind a KV namespace for persistent /r/:hash/:filename rule URLs in production.
 [[kv_namespaces]]
 binding = "CONVERTER_KV"
 id = "9f2831802deb407a86313433eac89b03"
+
+# Each anonymous Rule Studio workspace is serialized by a Durable Object.
+# `wrangler dev` works without this binding by using an in-memory local fallback.
+[[durable_objects.bindings]]
+name = "RULESET_WORKSPACE"
+class_name = "RuleSetWorkspace"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RuleSetWorkspace"]

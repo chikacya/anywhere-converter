@@ -4,7 +4,14 @@ export function renderHome() {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Anywhere-converter</title>
+  <meta name="theme-color" content="#f3f5fa">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Anywhere">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/anywhere-converter-app-icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/anywhere-converter-app-icon-180.png">
+  <title>Anywhere Converter</title>
   <style>
     :root {
       color-scheme: light;
@@ -672,14 +679,185 @@ export function renderHome() {
       .panel-body { padding: 10px; }
       h1 { font-size: 31px; }
     }
+    /* iOS-inspired application layer. Existing converter controls retain their IDs and behaviour. */
+    :root {
+      --ios-blue: #007aff;
+      --ios-indigo: #5856d6;
+      --ios-fill: color-mix(in srgb, #8e8e93 12%, transparent);
+      --ios-material: rgba(255, 255, 255, .78);
+      --ios-material-strong: rgba(255, 255, 255, .92);
+      --ios-shadow: 0 1px 2px rgba(0, 0, 0, .03), 0 8px 24px rgba(0, 0, 0, .05);
+      --paper: #fff;
+      --panel: #fbfbfd;
+      --line: rgba(60, 60, 67, .16);
+      --ink: #1d1d1f;
+      --muted: #6e6e73;
+      --radius: 22px;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+      font-synthesis: none;
+    }
+    body {
+      background: #f5f5f7;
+      letter-spacing: 0;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    body[data-theme="dark"] { --ios-material: rgba(28, 28, 30, .84); --ios-material-strong: rgba(28, 28, 30, .94); --ios-shadow: 0 1px 1px rgba(0,0,0,.2), 0 12px 24px rgba(0,0,0,.22); --paper: #1c1c1e; --panel: #2c2c2e; --line: rgba(235,235,245,.16); --ink: #f5f5f7; --muted: #aeaeb2; background: #000; }
+    .shell { width: min(1368px, calc(100vw - 48px)); padding: 12px 0 calc(72px + env(safe-area-inset-bottom)); }
+    header { position: sticky; z-index: 10; top: max(12px, env(safe-area-inset-top)); grid-template-columns: minmax(0, 1fr) auto; border: 1px solid color-mix(in srgb, var(--line) 88%, transparent); border-radius: 25px; padding: 10px 16px; background: var(--ios-material); box-shadow: 0 10px 28px rgba(0,0,0,.08), inset 0 1px 0 rgba(255,255,255,.28); -webkit-backdrop-filter: blur(26px) saturate(175%); backdrop-filter: blur(26px) saturate(175%); }
+    .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
+    .brand-mark { width: 44px; height: 44px; flex: 0 0 44px; display: block; border-radius: 13px; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,.16); }
+    .brand-mark svg { width: 28px; height: 28px; }
+    h1 { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif; font-size: clamp(23px, 3vw, 34px); line-height: 1.04; letter-spacing: -.045em; }
+    .subtitle { margin-top: 5px; font-size: 13px; max-width: 690px; }
+    .header-actions { gap: 7px; }
+    .top-link, .btn { border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); border-radius: 14px; box-shadow: none; font-weight: 720; transition: transform .22s ease, background .22s ease, box-shadow .22s ease; }
+    .top-link { min-height: 36px; background: color-mix(in srgb, var(--paper) 84%, transparent); }
+    .btn { min-height: 40px; padding: 0 13px; background: color-mix(in srgb, var(--paper) 82%, transparent); }
+    .btn.primary { border-color: transparent; background: linear-gradient(135deg, var(--ios-blue), #5e5ce6); box-shadow: 0 8px 18px rgba(0, 122, 255, .20); }
+    .top-link:hover, .btn:hover:not(:disabled), .file-link:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(23, 32, 42, .10); }
+    .theme-toggle, .btn.theme-toggle { border-radius: 50%; background: var(--ios-fill); }
+    .theme-toggle .moon svg { transform: none; }
+    .app-tabs { display: none !important; }
+    .app-tab { border: 0; background: transparent; cursor: pointer; }
+    .workspace { gap: 14px; margin-top: 52px; }
+    .workspace[hidden], .studio-view[hidden] { display: none !important; }
+    .panel { border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: var(--ios-shadow); overflow: clip; }
+    .panel-head { border-color: color-mix(in srgb, var(--line) 62%, transparent); padding: 15px 17px; }
+    .panel-body { padding: 17px; }
+    .panel-title { letter-spacing: -.025em; }
+    .converter-panel-title { display: grid; gap: 1px; }
+    .converter-panel-title small { color: var(--muted); font-size: 11px; font-weight: 560; }
+    .converter-panel form { display: grid; gap: 14px; }
+    .converter-source-step { display: grid; gap: 11px; border: 1px solid color-mix(in srgb, var(--ios-blue) 17%, var(--line)); border-radius: 19px; background: color-mix(in srgb, var(--ios-blue) 3%, var(--panel)); padding: 14px; }
+    .converter-step-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .converter-step-head > div { display: grid; gap: 2px; }
+    .converter-step-head span { color: var(--ios-blue); font-size: 11px; font-weight: 720; letter-spacing: .04em; }
+    .converter-step-head h3 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
+    .converter-step-head small { color: var(--muted); font-size: 11px; line-height: 1.4; text-align: right; }
+    .converter-source-step > label { gap: 5px; font-size: 12px; font-weight: 650; }
+    .converter-source-step textarea { min-height: 280px; max-height: min(52dvh, 480px); resize: vertical; }
+    .converter-options { overflow: clip; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); }
+    .converter-options > summary { display: flex; min-height: 58px; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; padding: 10px 14px; }
+    .converter-options > summary::-webkit-details-marker { display: none; }
+    .converter-options > summary > span:first-child { display: grid; gap: 2px; }
+    .converter-options > summary strong { font-size: 14px; letter-spacing: -.012em; }
+    .converter-options > summary small { color: var(--muted); font-size: 11px; }
+    .converter-options-chevron { color: var(--muted); font-size: 21px; line-height: 1; transition: transform 180ms ease-out; }
+    .converter-options[open] .converter-options-chevron { transform: rotate(180deg); }
+    .converter-options-body { display: grid; gap: 14px; border-top: 1px solid color-mix(in srgb, var(--line) 76%, transparent); padding: 14px; }
+    .converter-basics { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+    .converter-basics > label:first-child { grid-column: 1 / -1; }
+    .converter-options .argument-config, .converter-options .script-recovery { border-radius: 15px; background: color-mix(in srgb, var(--paper) 76%, transparent); padding: 12px; }
+    .conversion-actions { align-items: stretch; }
+    .conversion-actions #submit { min-height: 46px; }
+    input, textarea, select { border-color: color-mix(in srgb, var(--line) 88%, transparent); border-radius: 13px; background: color-mix(in srgb, var(--paper) 82%, transparent); }
+    .preview { border: 0; border-radius: 17px; }
+    .metric { border-radius: 17px; border-color: transparent; background: var(--ios-fill); }
+    .studio-view { margin-top: 30px; }
+    .studio-hero { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin: 0 0 20px; padding: 2px 2px 0; }
+    .studio-hero h2 { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.055em; }
+    .studio-hero p { margin: 7px 0 0; color: var(--muted); line-height: 1.5; max-width: 690px; }
+    .studio-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 14px; align-items: start; }
+    .studio-sidebar, .studio-editor, .studio-empty { padding: 18px; border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: var(--ios-shadow); }
+    .studio-sidebar-head, .studio-editor-head, .studio-actions, .studio-workspace-meta { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
+    .studio-sidebar-head h3, .studio-editor-head h3 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
+    .studio-workspace-meta { margin: 13px 0; padding: 11px; border-radius: 15px; background: var(--ios-fill); align-items: flex-start; }
+    .studio-workspace-meta small, .studio-hint, .studio-status { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .studio-workspace-id { font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; overflow-wrap: anywhere; }
+    .studio-list { display: grid; gap: 7px; }
+    .ruleset-item { display: grid; gap: 3px; width: 100%; padding: 12px; border: 1px solid transparent; border-radius: 16px; text-align: left; color: var(--ink); background: transparent; cursor: pointer; }
+    .ruleset-item:hover, .ruleset-item.active { border-color: color-mix(in srgb, var(--ios-blue) 36%, transparent); background: color-mix(in srgb, var(--ios-blue) 10%, transparent); }
+    .ruleset-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ruleset-item small { color: var(--muted); }
+    .studio-editor { min-width: 0; }
+    .studio-editor[hidden], .studio-empty[hidden], .studio-grid[hidden] { display: none !important; }
+    .studio-fields { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 10px; margin: 16px 0; }
+    .studio-icon-card { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 12px; align-items: center; margin: 0 0 16px; padding: 12px; border: 1px solid var(--line); border-radius: 17px; background: var(--panel); }
+    .studio-icon-preview { display: grid; width: 58px; height: 58px; place-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--line) 88%, transparent); border-radius: 16px; background: var(--paper); color: var(--muted); font-size: 11px; font-weight: 650; }
+    .studio-icon-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .studio-icon-preview img[hidden] { display: none !important; }
+    .studio-icon-copy { min-width: 0; }
+    .studio-icon-copy h4 { margin: 0; font-size: 14px; letter-spacing: -.01em; }
+    .studio-icon-copy p { margin: 2px 0 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .studio-icon-copy small { color: var(--muted); font-size: 11px; }
+    .studio-icon-actions { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+    .studio-icon-actions .btn { min-height: 34px; border-radius: 10px; font-size: 12px; padding: 0 10px; }
+    #studio-icon-remove[hidden] { display: none !important; }
+    .studio-icon-url-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-bottom: 6px; }
+    .studio-icon-url-row input { min-width: 0; min-height: 34px; border-radius: 10px; font-size: 12px; }
+    .studio-icon-url-row .btn { min-height: 34px; border-radius: 10px; font-size: 12px; padding: 0 10px; }
+    .studio-source { min-height: 360px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; line-height: 1.55; }
+    .rule-quick-add { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 9px; margin-top: 12px; }
+    .studio-actions { flex-wrap: wrap; justify-content: flex-start; margin-top: 14px; }
+    .studio-status { min-height: 18px; margin: 11px 0 0; }
+    .studio-status.error { color: var(--red); }
+    .studio-summary { color: var(--muted); font-size: 12px; }
+    .studio-empty { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 0; border: 0; background: transparent; box-shadow: none; text-align: left; }
+    .studio-entry-card { display: grid; gap: 11px; min-height: 270px; padding: 22px; border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: var(--ios-shadow); }
+    .studio-entry-card h3 { margin: 0; font-size: 21px; letter-spacing: -.035em; }
+    .studio-entry-card p { max-width: 560px; margin: 0; color: var(--muted); line-height: 1.55; }
+    .studio-entry-card label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .studio-entry-card input { min-height: 42px; }
+    .studio-entry-card .btn { justify-self: start; margin-top: auto; }
+    .mobile-tabbar { position: fixed; z-index: 30; bottom: max(14px, env(safe-area-inset-bottom)); left: 50%; display: grid; width: min(470px, calc(100vw - 48px)); min-height: 66px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--line) 88%, transparent); border-radius: 24px; background: color-mix(in srgb, var(--ios-material-strong) 86%, transparent); box-shadow: 0 12px 30px rgba(0,0,0,.14), inset 0 1px 0 rgba(255,255,255,.24); -webkit-backdrop-filter: blur(26px) saturate(175%); backdrop-filter: blur(26px) saturate(175%); padding: 5px; transform: translateX(-50%); }
+    .mobile-tabbar .app-tab { display: inline-flex; min-height: 54px; align-items: center; justify-content: center; flex-direction: column; gap: 2px; border-radius: 18px; color: var(--muted); font-size: 10px; font-weight: 650; line-height: 1.1; padding: 3px 8px; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: color 160ms ease-out, background 160ms ease-out, box-shadow 160ms ease-out, transform 100ms ease-out; }
+    .mobile-tabbar .app-tab svg { width: 20px; height: 20px; }
+    .mobile-tabbar .app-tab[aria-selected="true"] { color: var(--ios-blue); background: color-mix(in srgb, var(--paper) 72%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.38), 0 1px 3px rgba(0,0,0,.08); }
+    .mobile-tabbar .app-tab:active { transform: scale(.975); }
+    @media (max-width: 780px) {
+      .shell { width: min(100vw - 20px, 1368px); padding-top: 10px; padding-bottom: calc(105px + env(safe-area-inset-bottom)); }
+      header { padding: 12px; border-radius: 23px; }
+      .brand-mark { width: 39px; height: 39px; flex-basis: 39px; border-radius: 13px; }
+      .brand-mark svg { width: 25px; height: 25px; }
+      .subtitle { font-size: 11px; }
+      .header-actions .health { display: none; }
+      .top-link { font-size: 0; width: 38px; padding: 0; border-radius: 50%; }
+      .top-link svg { width: 17px; height: 17px; }
+      .workspace { margin-top: 30px; }
+      .converter-panel .panel-head { align-items: center; }
+      .converter-panel .panel-body { padding: 12px; }
+      .converter-source-step { gap: 10px; border-radius: 18px; padding: 13px; }
+      .converter-source-step textarea { min-height: min(42dvh, 330px); max-height: 430px; }
+      .converter-step-head h3 { font-size: 15px; }
+      .converter-options { border-radius: 17px; }
+      .converter-options > summary { min-height: 56px; padding: 10px 13px; }
+      .converter-options-body { gap: 12px; padding: 12px; }
+      .converter-options .argument-config, .converter-options .script-recovery { padding: 11px; }
+      .conversion-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .conversion-actions > * { width: 100%; min-width: 0; padding: 0 8px; font-size: 12px; }
+      .conversion-actions #submit { grid-column: 1 / -1; min-height: 48px; font-size: 14px; }
+      .output-panel .panel-body { padding: 12px; }
+      .output-panel .result-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .output-panel .preview { min-height: 280px; max-height: 48dvh; }
+      .studio-hero { padding: 2px 2px 0; align-items: start; flex-direction: column; margin-bottom: 16px; }
+      .studio-grid { grid-template-columns: 1fr; }
+      .studio-empty { grid-template-columns: 1fr; gap: 12px; }
+      .studio-entry-card { min-height: 0; padding: 18px; }
+      .studio-sidebar { order: 2; }
+      .studio-fields, .rule-quick-add { grid-template-columns: 1fr; }
+      .studio-icon-card { grid-template-columns: 52px minmax(0, 1fr); }
+      .studio-icon-preview { width: 52px; height: 52px; border-radius: 14px; }
+      .studio-icon-url-row { grid-template-columns: 1fr; }
+      .studio-source { min-height: 310px; }
+      /* Keep the iOS 26 floating geometry, but use AnywhereHub's shared material verbatim. */
+      .mobile-tabbar { bottom: calc(10px + env(safe-area-inset-bottom)); width: min(430px, calc(100vw - 28px)); min-height: 64px; height: 64px; border-radius: 30px; }
+      .mobile-tabbar .app-tab { min-height: 54px; border-radius: 25px; padding: 3px 12px 4px; }
+      .mobile-tabbar .app-tab svg { width: 21px; height: 21px; stroke-width: 1.8; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+    @media (prefers-reduced-transparency: reduce) { .mobile-tabbar { background: var(--paper); -webkit-backdrop-filter: none; backdrop-filter: none; } }
   </style>
 </head>
 <body>
   <div class="shell">
     <header>
-      <div>
-        <h1>Anywhere-converter</h1>
-        <p class="subtitle">把 Loon / Surge 插件、模块、脚本和规则集转换为 Anywhere 可导入的 .amrs / .arrs。</p>
+      <div class="brand">
+        <img class="brand-mark" src="/icons/anywhere-converter-app-icon.png" width="44" height="44" alt="">
+        <div>
+          <h1>Anywhere Converter</h1>
+          <p class="subtitle">把 Loon / Surge 插件、模块、脚本和规则集，转化为轻量、可导入的 Anywhere 配置。</p>
+        </div>
       </div>
       <div class="header-actions">
         <a class="top-link health" id="health" href="https://anywhere-hub.chikacya.indevs.in/" target="_blank" rel="noopener">Anywhere Hub</a>
@@ -692,9 +870,9 @@ export function renderHome() {
     </header>
 
     <main class="workspace">
-      <section class="panel" aria-labelledby="input-title">
+      <section class="panel converter-panel" aria-labelledby="input-title">
         <div class="panel-head">
-          <h2 class="panel-title" id="input-title">Input</h2>
+          <div class="converter-panel-title"><h2 class="panel-title" id="input-title">转换器</h2><small>导入 Loon / Surge 插件、模块或规则集</small></div>
           <div class="actions">
             <button class="btn" id="sample" type="button" title="填入一个最小示例模块">${icon("file-plus")}示例</button>
             <button class="btn" id="clear" type="button" title="清空输入">${icon("trash")}清空</button>
@@ -702,26 +880,37 @@ export function renderHome() {
         </div>
         <div class="panel-body">
           <form id="form">
-            <label>名称
-              <input name="name" placeholder="留空则读取 #!name">
-            </label>
-            <label>输入类型
-              <select name="sourceKind">
-                <option value="auto">自动识别</option>
-                <option value="module">插件/模块</option>
-                <option value="ruleset">规则集</option>
-              </select>
-            </label>
-            <label>规则集路由
-              <select name="ruleSetRouting">
-                <option value="default">默认规则</option>
-                <option value="direct">Direct</option>
-                <option value="reject">Reject</option>
-              </select>
-            </label>
-            <label>模块/规则集 URL
-              <input name="url" placeholder="https://example.com/module.plugin 或 ruleset.list">
-            </label>
+            <section class="converter-source-step" aria-labelledby="source-step-title">
+              <div class="converter-step-head"><div><span>输入来源</span><h3 id="source-step-title">粘贴链接或插件内容</h3></div><small>二选一即可</small></div>
+              <label>模块 / 规则集 URL
+                <input name="url" inputmode="url" autocomplete="url" placeholder="https://example.com/module.plugin">
+              </label>
+              <label class="converter-source-text">插件 / 模块 / 规则集内容
+                <textarea name="source" spellcheck="false" placeholder="粘贴 Loon / Surge 插件、模块或规则集内容。只填写 URL 时，会自动读取远程内容。"></textarea>
+              </label>
+            </section>
+            <details class="converter-options">
+              <summary><span><strong>转换选项</strong><small>格式、参数、脚本与图标</small></span><span class="converter-options-chevron" aria-hidden="true">⌄</span></summary>
+              <div class="converter-options-body">
+                <div class="converter-basics">
+                  <label>名称
+                    <input name="name" placeholder="留空则读取 #!name">
+                  </label>
+                  <label>输入类型
+                    <select name="sourceKind">
+                      <option value="auto">自动识别</option>
+                      <option value="module">插件/模块</option>
+                      <option value="ruleset">规则集</option>
+                    </select>
+                  </label>
+                  <label>规则集路由
+                    <select name="ruleSetRouting">
+                      <option value="default">默认规则</option>
+                      <option value="direct">Direct</option>
+                      <option value="reject">Reject</option>
+                    </select>
+                  </label>
+                </div>
             <details class="icon-config" id="icon-config">
               <summary>
                 <span class="icon-summary-copy">
@@ -803,10 +992,9 @@ export function renderHome() {
               </div>
               <div class="script-overrides" id="script-overrides"></div>
             </div>
-            <label>模块/规则集内容
-              <textarea name="source" spellcheck="false" placeholder="粘贴 Loon / Surge 模块或规则集内容，或只填写 URL"></textarea>
-            </label>
-            <div class="actions">
+              </div>
+            </details>
+            <div class="actions conversion-actions">
               <button class="btn primary" id="submit" type="submit">${icon("wand")}转换</button>
               <a class="btn" id="import" hidden>${icon("phone")}导入 Anywhere</a>
               <button class="btn" id="refresh-cache" type="button" disabled title="重新生成动态订阅链接，绕过 Worker 缓存">${icon("refresh")}刷新缓存</button>
@@ -819,9 +1007,9 @@ export function renderHome() {
         </div>
       </section>
 
-      <section class="panel" aria-labelledby="output-title">
+      <section class="panel output-panel" id="output-panel" aria-labelledby="output-title">
         <div class="panel-head">
-          <h2 class="panel-title" id="output-title">Output</h2>
+          <h2 class="panel-title" id="output-title">转换结果</h2>
           <span id="status" class="status">waiting</span>
         </div>
         <div class="panel-body">
@@ -839,7 +1027,84 @@ export function renderHome() {
         </div>
       </section>
     </main>
+
+    <section class="studio-view" id="studio-view" hidden aria-labelledby="studio-title">
+      <div class="studio-hero">
+        <div>
+          <p class="section-kicker">Anywhere native ARRS</p>
+          <h2 id="studio-title">规则集在线工坊</h2>
+          <p>在浏览器中编写 Anywhere 原生 ARRS，发布后得到一条可多人订阅的在线链接。管理密钥仅保留在你的编辑链接片段中，不会出现在订阅地址。</p>
+        </div>
+      </div>
+      <div class="studio-empty" id="studio-empty">
+        <section class="studio-entry-card">
+          <p class="section-kicker">New workspace</p>
+          <h3>从一份自建规则集开始</h3>
+          <p>创建后会生成唯一管理链接。请把它保存到密码管理器或自己的笔记中；没有管理密钥无法再次编辑。</p>
+          <button class="btn primary" id="studio-create-workspace" type="button">创建工作区</button>
+        </section>
+        <section class="studio-entry-card">
+          <p class="section-kicker">Open workspace</p>
+          <h3>回到已有工作区</h3>
+          <p>粘贴完整管理链接最方便；也可输入工作区 ID 和管理密钥。若密钥已在本设备保存，只填 ID 即可。</p>
+          <label>管理链接或工作区 ID<input id="studio-open-workspace" autocomplete="off" placeholder="粘贴 /editor/...#key=... 或工作区 ID"></label>
+          <label>管理密钥（可选）<input id="studio-open-key" type="password" autocomplete="off" placeholder="仅输入 ID 时需要"></label>
+          <button class="btn" id="studio-open-workspace-button" type="button">打开工作区</button>
+        </section>
+      </div>
+      <div class="studio-grid" id="studio-grid" hidden>
+        <aside class="studio-sidebar">
+          <div class="studio-sidebar-head">
+            <h3>我的规则集</h3>
+            <button class="btn" id="studio-new-ruleset" type="button">新建</button>
+          </div>
+          <div class="studio-workspace-meta">
+            <div><small>工作区 ID</small><div class="studio-workspace-id" id="studio-workspace-id">—</div></div>
+            <button class="btn" id="studio-copy-edit-link" type="button" title="复制管理链接">复制</button>
+          </div>
+          <div class="studio-list" id="studio-list"></div>
+          <p class="studio-hint">最多 20 份规则集；单份上限 100,000 条 / 8 MiB。发布只在保存时发生。</p>
+        </aside>
+        <section class="studio-editor" id="studio-editor" hidden>
+          <div class="studio-editor-head">
+            <div><h3 id="studio-editor-title">规则集</h3><span class="studio-summary" id="studio-summary"></span></div>
+            <button class="btn" id="studio-delete" type="button">删除</button>
+          </div>
+          <div class="studio-fields">
+            <label>名称<input id="studio-name" maxlength="120" placeholder="例如：我的广告拦截"></label>
+            <label>路由<select id="studio-routing"><option value="0">默认</option><option value="1">Direct</option><option value="2">Reject</option></select></label>
+          </div>
+          <section class="studio-icon-card" aria-labelledby="studio-icon-title">
+            <div class="studio-icon-preview" id="studio-icon-preview"><img id="studio-icon-image" alt="规则集图标预览" hidden><span id="studio-icon-placeholder">图标</span></div>
+            <div class="studio-icon-copy">
+              <h4 id="studio-icon-title">自定义图标</h4>
+              <p>上传图片或读取图片 URL 后，会作为 Base64 写入 <code>icon-light</code>，随规则集一起保存和发布。</p>
+              <div class="studio-icon-actions"><label class="btn" for="studio-icon-file">选择图片<input id="studio-icon-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label><button class="btn" id="studio-icon-remove" type="button" hidden>移除图标</button></div>
+              <div class="studio-icon-url-row"><input id="studio-icon-url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/icon.png" aria-label="规则集图标 URL"><button class="btn" id="studio-icon-load-url" type="button">读取 URL</button></div>
+              <small id="studio-icon-status">支持 PNG、JPEG、WebP、GIF，最大 256 KiB。</small>
+            </div>
+          </section>
+          <label>ARRS 内容<textarea class="studio-source" id="studio-source" spellcheck="false" placeholder="name = 我的规则集&#10;routing = 2&#10;&#10;2, example.com&#10;3, tracker"></textarea></label>
+          <div class="rule-quick-add" aria-label="快速添加规则">
+            <select id="studio-rule-type"><option value="2">域名后缀</option><option value="3">域名关键字</option><option value="0">IPv4 CIDR</option><option value="1">IPv6 CIDR</option></select>
+            <input id="studio-rule-value" placeholder="example.com">
+            <button class="btn" id="studio-add-rule" type="button">添加规则</button>
+          </div>
+          <div class="studio-actions">
+            <button class="btn primary" id="studio-save" type="button">保存并发布</button>
+            <button class="btn" id="studio-copy-subscription" type="button">复制订阅链接</button>
+            <a class="btn" id="studio-open-subscription" target="_blank" rel="noopener" hidden>打开 ARRS</a>
+          </div>
+          <p class="studio-status" id="studio-status" role="status" aria-live="polite"></p>
+        </section>
+      </div>
+    </section>
   </div>
+
+  <nav class="mobile-tabbar" aria-label="主导航">
+    <button class="app-tab" type="button" data-app-view="convert" aria-selected="true" aria-current="page">${icon("wand")}<span>转换器</span></button>
+    <button class="app-tab" type="button" data-app-view="studio" aria-selected="false">${icon("sliders")}<span>规则集工坊</span></button>
+  </nav>
 
   <script>
     const icons = {};
@@ -878,6 +1143,7 @@ export function renderHome() {
     const diagnosticsEl = document.querySelector("#diagnostics");
     const healthEl = document.querySelector("#health");
     const themeToggle = document.querySelector("#theme-toggle");
+    const outputPanel = document.querySelector("#output-panel");
     const metrics = {
       converted: document.querySelector("#converted"),
       skipped: document.querySelector("#skipped"),
@@ -1141,6 +1407,7 @@ $done({ body: JSON.stringify(obj) });\`;
         lastJson = json;
         if (cacheBustValue) cacheBustValue = "";
         renderResult(json);
+        revealMobileResult();
       } catch (error) {
         lastJson = null;
         currentFile = null;
@@ -1151,6 +1418,7 @@ $done({ body: JSON.stringify(obj) });\`;
         diagnosticsEl.replaceChildren();
         preview.classList.add("error");
         preview.textContent = error.message;
+        revealMobileResult();
       } finally {
         submit.disabled = false;
         copyJson.disabled = !lastJson;
@@ -2042,6 +2310,448 @@ $done({ body: JSON.stringify(obj) });\`;
       }
     }
 
+    // Rule Studio: the secret is kept in the URL fragment and sent only as a
+    // bearer credential. It is never part of a public .arrs subscription URL.
+    const studioView = document.querySelector("#studio-view");
+    const converterView = document.querySelector("main.workspace");
+    const studioEmpty = document.querySelector("#studio-empty");
+    const studioGrid = document.querySelector("#studio-grid");
+    const studioList = document.querySelector("#studio-list");
+    const studioEditor = document.querySelector("#studio-editor");
+    const studioWorkspaceIdEl = document.querySelector("#studio-workspace-id");
+    const studioName = document.querySelector("#studio-name");
+    const studioRouting = document.querySelector("#studio-routing");
+    const studioSource = document.querySelector("#studio-source");
+    const studioIconFile = document.querySelector("#studio-icon-file");
+    const studioIconUrl = document.querySelector("#studio-icon-url");
+    const studioIconLoadUrl = document.querySelector("#studio-icon-load-url");
+    const studioIconImage = document.querySelector("#studio-icon-image");
+    const studioIconPlaceholder = document.querySelector("#studio-icon-placeholder");
+    const studioIconRemove = document.querySelector("#studio-icon-remove");
+    const studioIconStatus = document.querySelector("#studio-icon-status");
+    const studioSummary = document.querySelector("#studio-summary");
+    const studioStatus = document.querySelector("#studio-status");
+    const studioEditorTitle = document.querySelector("#studio-editor-title");
+    const studioRuleType = document.querySelector("#studio-rule-type");
+    const studioRuleValue = document.querySelector("#studio-rule-value");
+    const studioOpenSubscription = document.querySelector("#studio-open-subscription");
+    let studioWorkspaceId = workspaceIdFromPath();
+    let studioKey = workspaceKeyFromFragment() || (studioWorkspaceId ? localStorage.getItem("anywhere-converter-workspace-key:" + studioWorkspaceId) : "");
+    let studioWorkspace = null;
+    let studioRuleSet = null;
+    let studioDraftTimer = 0;
+
+    document.querySelectorAll("[data-app-view]").forEach((button) => button.addEventListener("click", () => setAppView(button.dataset.appView)));
+    document.querySelector("#studio-create-workspace").addEventListener("click", createStudioWorkspace);
+    document.querySelector("#studio-open-workspace-button").addEventListener("click", openExistingStudioWorkspace);
+    document.querySelector("#studio-new-ruleset").addEventListener("click", createStudioRuleSet);
+    document.querySelector("#studio-save").addEventListener("click", saveStudioRuleSet);
+    document.querySelector("#studio-delete").addEventListener("click", deleteStudioRuleSet);
+    document.querySelector("#studio-copy-edit-link").addEventListener("click", () => copyText(currentEditUrl(), "管理链接已复制。"));
+    document.querySelector("#studio-copy-subscription").addEventListener("click", () => copyText(studioSubscriptionUrl(), "订阅链接已复制。"));
+    document.querySelector("#studio-add-rule").addEventListener("click", addStudioRule);
+    [studioName, studioRouting, studioSource].forEach((field) => field.addEventListener("input", scheduleStudioDraft));
+    studioSource.addEventListener("input", renderStudioIconPreview);
+    studioIconFile.addEventListener("change", handleStudioIconUpload);
+    studioIconLoadUrl.addEventListener("click", () => loadStudioIconUrl().catch(() => {}));
+    studioIconUrl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      loadStudioIconUrl().catch(() => {});
+    });
+    studioIconRemove.addEventListener("click", removeStudioIcon);
+    addEventListener("popstate", () => {
+      studioWorkspaceId = workspaceIdFromPath();
+      studioKey = workspaceKeyFromFragment() || (studioWorkspaceId ? localStorage.getItem("anywhere-converter-workspace-key:" + studioWorkspaceId) : "");
+      if (studioWorkspaceId && studioKey) {
+        setAppView("studio", false);
+        loadStudioWorkspace();
+      }
+    });
+    if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+    if (studioWorkspaceId && studioKey) {
+      setAppView("studio", false);
+      loadStudioWorkspace();
+    }
+
+    function setAppView(view, focus = true) {
+      const isStudio = view === "studio";
+      converterView.hidden = isStudio;
+      studioView.hidden = !isStudio;
+      document.querySelectorAll("[data-app-view]").forEach((button) => {
+        const selected = button.dataset.appView === view;
+        button.setAttribute("aria-selected", String(selected));
+        button.toggleAttribute("aria-current", selected);
+      });
+      if (isStudio && studioWorkspaceId && studioKey && !studioWorkspace) loadStudioWorkspace();
+      if (focus) window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+
+    function revealMobileResult() {
+      if (!matchMedia("(max-width: 780px)").matches || !outputPanel) return;
+      requestAnimationFrame(() => outputPanel.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }));
+    }
+
+    async function createStudioWorkspace() {
+      studioStatusText("正在创建私有工作区…");
+      try {
+        const response = await fetch("/api/workspaces", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+        const data = await readStudioResponse(response);
+        if (!response.ok) throw new Error(data.detail || data.error || "无法创建工作区。");
+        const target = new URL(data.editUrl);
+        studioWorkspaceId = data.workspaceId;
+        studioKey = new URLSearchParams(target.hash.slice(1)).get("key") || "";
+        localStorage.setItem("anywhere-converter-workspace-key:" + studioWorkspaceId, studioKey);
+        history.replaceState({}, "", target.pathname + target.hash);
+        studioWorkspace = data.workspace;
+        renderStudioWorkspace();
+        studioStatusText("工作区已创建。请复制并保存管理链接。", false);
+        await createStudioRuleSet();
+      } catch (error) {
+        studioStatusText(error.message || "创建工作区失败。", true);
+      }
+    }
+
+    async function openExistingStudioWorkspace() {
+      const workspaceInput = document.querySelector("#studio-open-workspace").value.trim();
+      const explicitKey = document.querySelector("#studio-open-key").value.trim();
+      const parsed = parseStudioWorkspaceReference(workspaceInput);
+      if (!parsed.workspaceId) return studioStatusText("请输入工作区 ID，或粘贴完整管理链接。", true);
+      const key = parsed.key || explicitKey || localStorage.getItem("anywhere-converter-workspace-key:" + parsed.workspaceId) || "";
+      if (!key) return studioStatusText("工作区 ID 还需要对应的管理密钥；请粘贴完整管理链接或补充密钥。", true);
+      studioWorkspaceId = parsed.workspaceId;
+      studioKey = key;
+      studioWorkspace = null;
+      studioRuleSet = null;
+      localStorage.setItem("anywhere-converter-workspace-key:" + studioWorkspaceId, studioKey);
+      history.replaceState({}, "", "/editor/" + studioWorkspaceId + "#key=" + studioKey);
+      setAppView("studio", false);
+      await loadStudioWorkspace();
+    }
+
+    async function loadStudioWorkspace() {
+      if (!studioWorkspaceId || !studioKey) return;
+      studioStatusText("正在读取工作区…");
+      try {
+        const response = await studioFetch("/api/workspaces/" + studioWorkspaceId);
+        const data = await readStudioResponse(response);
+        if (!response.ok) throw new Error(data.detail || data.error || "无法读取工作区。");
+        studioWorkspace = data.workspace;
+        renderStudioWorkspace();
+        if (studioWorkspace.ruleSets.length) await selectStudioRuleSet(studioWorkspace.ruleSets[0].id);
+        else studioStatusText("还没有规则集，点击“新建”开始。", false);
+      } catch (error) {
+        studioWorkspace = null;
+        renderStudioWorkspace();
+        studioStatusText(error.message || "读取工作区失败。", true);
+      }
+    }
+
+    function renderStudioWorkspace() {
+      const ready = Boolean(studioWorkspace && studioWorkspaceId && studioKey);
+      studioEmpty.hidden = ready;
+      studioGrid.hidden = !ready;
+      if (!ready) return;
+      studioWorkspaceIdEl.textContent = studioWorkspaceId;
+      studioList.replaceChildren();
+      for (const item of studioWorkspace.ruleSets || []) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "ruleset-item" + (item.id === studioRuleSet?.id ? " active" : "");
+        const title = document.createElement("strong");
+        title.textContent = item.name;
+        const meta = document.createElement("small");
+        meta.textContent = (item.ruleCount || 0).toLocaleString() + " 条 · " + formatStudioBytes(item.bytes || 0);
+        button.append(title, meta);
+        button.addEventListener("click", () => selectStudioRuleSet(item.id));
+        studioList.append(button);
+      }
+      if (!studioWorkspace.ruleSets?.length) studioEditor.hidden = true;
+    }
+
+    async function createStudioRuleSet() {
+      if (!studioWorkspaceId || !studioKey) return createStudioWorkspace();
+      studioStatusText("正在新建规则集…");
+      try {
+        const response = await studioFetch("/api/workspaces/" + studioWorkspaceId + "/rulesets", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: "未命名规则集", routing: 0, source: "" }),
+        });
+        const data = await readStudioResponse(response);
+        if (!response.ok) throw new Error(data.detail || data.error || "无法新建规则集。");
+        studioWorkspace = data.workspace || studioWorkspace;
+        studioRuleSet = data.ruleSet;
+        renderStudioWorkspace();
+        renderStudioEditor();
+        studioName.focus();
+        studioStatusText("新规则集已创建，编辑后点击“保存并发布”。", false);
+      } catch (error) { studioStatusText(error.message || "新建规则集失败。", true); }
+    }
+
+    async function selectStudioRuleSet(ruleSetId) {
+      studioStatusText("正在读取规则集…");
+      try {
+        const response = await studioFetch("/api/workspaces/" + studioWorkspaceId + "/rulesets/" + ruleSetId);
+        const data = await readStudioResponse(response);
+        if (!response.ok) throw new Error(data.detail || data.error || "无法读取规则集。");
+        studioRuleSet = data.ruleSet;
+        const draft = await readStudioDraft(studioRuleSet.id);
+        if (draft && draft.updatedAt > Number(studioRuleSet.updatedAt || 0)) studioRuleSet = { ...studioRuleSet, ...draft, localDraft: true };
+        renderStudioWorkspace();
+        renderStudioEditor();
+        studioStatusText(studioRuleSet.localDraft ? "已恢复本机未保存草稿。" : "", false);
+      } catch (error) { studioStatusText(error.message || "读取规则集失败。", true); }
+    }
+
+    function renderStudioEditor() {
+      if (!studioRuleSet) return;
+      studioEditor.hidden = false;
+      studioEditorTitle.textContent = studioRuleSet.name || "规则集";
+      studioName.value = studioRuleSet.name || "";
+      studioRouting.value = String(studioRuleSet.routing || 0);
+      studioSource.value = studioRuleSet.content || "";
+      renderStudioIconPreview();
+      studioSummary.textContent = (studioRuleSet.ruleCount || 0).toLocaleString() + " 条 · " + formatStudioBytes(studioRuleSet.bytes || 0) + " · v" + (studioRuleSet.revision || 1);
+      const subscription = studioSubscriptionUrl();
+      studioOpenSubscription.href = subscription;
+      studioOpenSubscription.hidden = !subscription;
+    }
+
+    async function saveStudioRuleSet() {
+      if (!studioRuleSet) return;
+      const button = document.querySelector("#studio-save");
+      clearTimeout(studioDraftTimer);
+      studioDraftTimer = 0;
+      button.disabled = true;
+      studioStatusText("正在验证并发布…");
+      try {
+        const response = await studioFetch("/api/workspaces/" + studioWorkspaceId + "/rulesets/" + studioRuleSet.id, {
+          method: "PUT",
+          headers: { "content-type": "application/json", "if-match": String(studioRuleSet.revision || 1) },
+          body: JSON.stringify({ name: studioName.value, routing: Number(studioRouting.value), source: studioSource.value, revision: studioRuleSet.revision }),
+        });
+        const data = await readStudioResponse(response);
+        if (response.status === 409) throw new Error("此规则集已在另一处被更新，请重新打开后合并修改。");
+        if (!response.ok) throw new Error(data.detail || data.error || "发布失败。");
+        studioWorkspace = data.workspace || studioWorkspace;
+        studioRuleSet = data.ruleSet;
+        await deleteStudioDraft(studioRuleSet.id);
+        renderStudioWorkspace();
+        renderStudioEditor();
+        studioStatusText("已保存并发布。订阅端最多在缓存 TTL 后看到最新版本。", false);
+      } catch (error) { studioStatusText(error.message || "发布失败。", true); }
+      finally { button.disabled = false; }
+    }
+
+    async function deleteStudioRuleSet() {
+      if (!studioRuleSet || !confirm("确定删除“" + studioRuleSet.name + "”吗？已发布的订阅链接会失效。")) return;
+      try {
+        const response = await studioFetch("/api/workspaces/" + studioWorkspaceId + "/rulesets/" + studioRuleSet.id, { method: "DELETE" });
+        const data = await readStudioResponse(response);
+        if (!response.ok) throw new Error(data.detail || data.error || "删除失败。");
+        await deleteStudioDraft(studioRuleSet.id);
+        studioWorkspace = data.workspace || studioWorkspace;
+        studioRuleSet = null;
+        renderStudioWorkspace();
+        if (studioWorkspace.ruleSets?.length) await selectStudioRuleSet(studioWorkspace.ruleSets[0].id);
+        else studioStatusText("规则集已删除。", false);
+      } catch (error) { studioStatusText(error.message || "删除失败。", true); }
+    }
+
+    function addStudioRule() {
+      const value = studioRuleValue.value.trim();
+      if (!value) return studioRuleValue.focus();
+      const source = studioSource.value.replace(/\\s*$/, "");
+      studioSource.value = source + (source ? "\\n" : "") + studioRuleType.value + ", " + value + "\\n";
+      studioRuleValue.value = "";
+      scheduleStudioDraft();
+      studioStatusText("规则已加入草稿，保存后才会发布。", false);
+    }
+
+    async function handleStudioIconUpload() {
+      const file = studioIconFile.files?.[0];
+      if (!file) return;
+      setStudioIconMessage("正在读取图片…");
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (bytes.length > 256 * 1024) throw new Error("图片超过 256 KiB 上限，请更换更小的图标。");
+        if (!imageMimeType(bytes)) throw new Error("只支持 PNG、JPEG、WebP 或 GIF 图片。");
+        writeStudioIcon(bytesToBase64(bytes));
+        studioIconFile.value = "";
+        setStudioIconMessage("图标已加入草稿，保存后会与规则集一起发布。");
+      } catch (error) {
+        studioIconFile.value = "";
+        setStudioIconMessage(error.message || "读取图标失败。", true);
+      }
+    }
+
+    async function loadStudioIconUrl() {
+      const url = studioIconUrl.value.trim();
+      if (!url) {
+        setStudioIconMessage("请填写图片 URL。", true);
+        return;
+      }
+      studioIconLoadUrl.disabled = true;
+      setStudioIconMessage("正在读取图片 URL…");
+      try {
+        const response = await fetch("/api/icon", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ iconUrl: url }),
+        });
+        const json = await readStudioResponse(response);
+        if (!response.ok) throw new Error(json.detail || json.error || "图片 URL 读取失败。");
+        writeStudioIcon(json.base64 || "");
+        studioIconUrl.value = "";
+        setStudioIconMessage("已从 URL 读取并嵌入图标 · " + formatByteSize(Number(json.bytes) || base64ByteLength(json.base64 || "")) + "。");
+      } catch (error) {
+        setStudioIconMessage(error.message || "图片 URL 读取失败。", true);
+        throw error;
+      } finally {
+        studioIconLoadUrl.disabled = false;
+      }
+    }
+
+    function writeStudioIcon(base64) {
+      const lines = studioSource.value.split("\\n").filter((line) => !/^\\s*icon-light\\s*=/i.test(line));
+      const routingIndex = lines.findIndex((line) => /^\\s*routing\\s*=/i.test(line));
+      const index = routingIndex >= 0 ? routingIndex + 1 : Math.min(lines.length, 2);
+      lines.splice(index, 0, "icon-light = " + base64);
+      studioSource.value = lines.join("\\n").replace(/\\n{3,}/g, "\\n\\n");
+      renderStudioIconPreview();
+      scheduleStudioDraft();
+    }
+
+    function removeStudioIcon() {
+      const lines = studioSource.value.split("\\n").filter((line) => !/^\\s*icon-light\\s*=/i.test(line));
+      studioSource.value = lines.join("\\n").replace(/\\n{3,}/g, "\\n\\n");
+      studioIconFile.value = "";
+      studioIconUrl.value = "";
+      renderStudioIconPreview();
+      scheduleStudioDraft();
+      setStudioIconMessage("已从草稿移除图标。");
+    }
+
+    function renderStudioIconPreview() {
+      const match = studioSource.value.match(/^\\s*icon-light\\s*=\\s*(.+)\\s*$/im);
+      const raw = match?.[1]?.trim() || "";
+      if (!raw) {
+        studioIconImage.removeAttribute("src");
+        studioIconImage.hidden = true;
+        studioIconPlaceholder.hidden = false;
+        studioIconRemove.hidden = true;
+        setStudioIconMessage("支持 PNG、JPEG、WebP、GIF，最大 256 KiB。");
+        return;
+      }
+      if (/^https?:\\/\\//i.test(raw)) {
+        studioIconImage.src = raw;
+        studioIconImage.hidden = false;
+        studioIconPlaceholder.hidden = true;
+        studioIconRemove.hidden = false;
+        setStudioIconMessage("使用上游图标 URL；保存后会随订阅保留。");
+        return;
+      }
+      const base64 = raw.replace(/^data:[^;,]+;base64,/i, "").replace(/\\s+/g, "");
+      const mimeType = studioIconMimeType(base64);
+      if (!mimeType) {
+        studioIconImage.removeAttribute("src");
+        studioIconImage.hidden = true;
+        studioIconPlaceholder.hidden = false;
+        studioIconRemove.hidden = false;
+        setStudioIconMessage("图标数据无效，保存时会被阻止。", true);
+        return;
+      }
+      studioIconImage.src = "data:" + mimeType + ";base64," + base64;
+      studioIconImage.hidden = false;
+      studioIconPlaceholder.hidden = true;
+      studioIconRemove.hidden = false;
+      setStudioIconMessage("已嵌入 · " + formatByteSize(base64ByteLength(base64)) + "。");
+    }
+
+    function studioIconMimeType(base64) {
+      try {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        return imageMimeType(bytes);
+      } catch { return ""; }
+    }
+
+    function setStudioIconMessage(message, isError = false) {
+      studioIconStatus.textContent = message || "";
+      studioIconStatus.classList.toggle("error", Boolean(isError));
+    }
+
+    function studioFetch(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      headers.set("authorization", "Bearer " + studioKey);
+      return fetch(path, { ...options, headers });
+    }
+
+    async function readStudioResponse(response) {
+      const type = response.headers.get("content-type") || "";
+      if (!type.includes("application/json")) return { detail: await response.text() || "服务返回了非 JSON 响应。" };
+      return response.json();
+    }
+
+    function workspaceIdFromPath() {
+      const match = location.pathname.match(/^\\/editor\\/([A-Za-z0-9_-]+)$/);
+      return match ? match[1] : "";
+    }
+
+    function parseStudioWorkspaceReference(value) {
+      const directId = String(value || "").trim();
+      if (/^[A-Za-z0-9_-]{8,80}$/.test(directId)) return { workspaceId: directId, key: "" };
+      try {
+        const url = new URL(directId);
+        const match = url.pathname.match(/^\\/editor\\/([A-Za-z0-9_-]+)$/);
+        return { workspaceId: match ? match[1] : "", key: new URLSearchParams(url.hash.slice(1)).get("key") || "" };
+      } catch { return { workspaceId: "", key: "" }; }
+    }
+
+    function workspaceKeyFromFragment() { return new URLSearchParams(location.hash.slice(1)).get("key") || ""; }
+    function currentEditUrl() { return studioWorkspaceId && studioKey ? location.origin + "/editor/" + studioWorkspaceId + "#key=" + studioKey : ""; }
+    function studioSubscriptionUrl() { return studioWorkspaceId && studioRuleSet ? location.origin + "/s/" + studioWorkspaceId + "/" + studioRuleSet.id + "/rules.arrs" : ""; }
+    function studioStatusText(message, isError = false) { studioStatus.textContent = message; studioStatus.classList.toggle("error", Boolean(isError)); }
+    function formatStudioBytes(value) { return value < 1024 ? value + " B" : (value / 1024).toFixed(value < 1024 * 1024 ? 1 : 2) + (value < 1024 * 1024 ? " KiB" : " MiB"); }
+    async function copyText(value, success) {
+      if (!value) return studioStatusText("请先创建或打开规则集。", true);
+      try { await navigator.clipboard.writeText(value); studioStatusText(success, false); }
+      catch { studioStatusText("浏览器未允许剪贴板访问，请手动复制链接。", true); }
+    }
+
+    function scheduleStudioDraft() {
+      if (!studioRuleSet) return;
+      clearTimeout(studioDraftTimer);
+      studioDraftTimer = setTimeout(async () => {
+        await writeStudioDraft(studioRuleSet.id, { name: studioName.value, routing: Number(studioRouting.value), content: studioSource.value, updatedAt: Date.now() });
+        studioStatusText("草稿已保存在此设备，尚未发布。", false);
+      }, 450);
+    }
+
+    function studioDraftDatabase() {
+      return new Promise((resolve, reject) => {
+        if (!("indexedDB" in window)) return reject(new Error("IndexedDB unavailable"));
+        const request = indexedDB.open("anywhere-converter", 1);
+        request.onupgradeneeded = () => request.result.createObjectStore("ruleset-drafts", { keyPath: "id" });
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+    async function writeStudioDraft(id, draft) {
+      try { const db = await studioDraftDatabase(); await new Promise((resolve, reject) => { const request = db.transaction("ruleset-drafts", "readwrite").objectStore("ruleset-drafts").put({ id, ...draft }); request.onsuccess = resolve; request.onerror = () => reject(request.error); }); db.close(); }
+      catch { localStorage.setItem("anywhere-converter-draft:" + id, JSON.stringify(draft)); }
+    }
+    async function readStudioDraft(id) {
+      try { const db = await studioDraftDatabase(); const value = await new Promise((resolve, reject) => { const request = db.transaction("ruleset-drafts").objectStore("ruleset-drafts").get(id); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); db.close(); return value; }
+      catch { try { return JSON.parse(localStorage.getItem("anywhere-converter-draft:" + id) || "null"); } catch { return null; } }
+    }
+    async function deleteStudioDraft(id) {
+      try { const db = await studioDraftDatabase(); await new Promise((resolve, reject) => { const request = db.transaction("ruleset-drafts", "readwrite").objectStore("ruleset-drafts").delete(id); request.onsuccess = resolve; request.onerror = () => reject(request.error); }); db.close(); }
+      catch { localStorage.removeItem("anywhere-converter-draft:" + id); }
+    }
+
   </script>
 </body>
 </html>`;
@@ -2063,3 +2773,41 @@ $done({ body: JSON.stringify(obj) });\`;
   };
     return icons[name] || "";
   }
+
+export function renderManifest() {
+  return JSON.stringify({
+    name: "Anywhere Converter",
+    short_name: "Anywhere",
+    description: "Loon / Surge 到 Anywhere 的转换器与规则集在线工坊",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#f4f6fb",
+    theme_color: "#f3f5fa",
+    lang: "zh-CN",
+    icons: [
+      { src: "/icons/anywhere-converter-app-icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icons/anywhere-converter-app-icon.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+    ],
+  });
+}
+
+export function renderServiceWorker() {
+  return `const CACHE = "anywhere-converter-shell-v2";
+const ASSETS = ["/", "/manifest.webmanifest", "/icons/icon-192.svg", "/icons/icon-512.svg"];
+self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  if (request.method !== "GET" || new URL(request.url).origin !== location.origin || new URL(request.url).pathname.startsWith("/api/")) return;
+  if (request.mode === "navigate") {
+    event.respondWith(fetch(request).then((response) => response).catch(() => caches.match("/")));
+    return;
+  }
+  event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
+});`;
+}
+
+export function renderAppIcon(size = 192) {
+  const safeSize = Number(size) >= 512 ? 512 : 192;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${safeSize}" height="${safeSize}" viewBox="0 0 192 192" fill="none"><defs><linearGradient id="g" x1="20" y1="12" x2="170" y2="184" gradientUnits="userSpaceOnUse"><stop stop-color="#5E5CE6"/><stop offset=".55" stop-color="#007AFF"/><stop offset="1" stop-color="#30D5C8"/></linearGradient><filter id="s" x="25" y="30" width="142" height="133" filterUnits="userSpaceOnUse"><feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#002A68" flood-opacity=".24"/></filter></defs><rect width="192" height="192" rx="48" fill="url(#g)"/><path d="M38 133 96 42l58 91" stroke="white" stroke-width="19" stroke-linecap="round" stroke-linejoin="round" filter="url(#s)"/><path d="M61 133h70" stroke="white" stroke-width="19" stroke-linecap="round"/><circle cx="96" cy="133" r="13" fill="#30D5C8" stroke="white" stroke-width="7"/></svg>`;
+}

@@ -6,9 +6,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/core.test.mjs",
+    "test": "node --test test/*.test.mjs",
     "convert": "node bin/cli.mjs",
     "dev": "wrangler dev",
+    "dev:lan": "wrangler dev --ip 0.0.0.0",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

@@ -1,23 +1,48 @@
 import { convertAnyAsync, detectSourceKind, internals, normalizeIconBase64, parseModule, parseRuleSet, validateAnywhereOutput } from "./core.mjs";
-import { renderHome } from "./ui.mjs";
+import { buildArrs } from "./ruleset-core.mjs";
+import { RuleSetWorkspace } from "./ruleset-workspace.mjs";
+import { renderAppIcon, renderHome, renderManifest, renderServiceWorker } from "./ui.mjs";
+
+export { RuleSetWorkspace };
 
 const memoryStore = new Map();
 const memoryRateStore = new Map();
 const memoryFetchCache = new Map();
 const memoryDynamicCache = new Map();
 const memoryIconCache = new Map();
+const memoryRuleSetWorkspaces = new Map();
+const memoryPublishedRuleSets = new Map();
+const memoryPublicRuleSetCache = new Map();
 
 export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") return optionsResponse();
-      if (request.method === "GET" && url.pathname === "/") return htmlResponse(renderHome());
+      if (request.method === "GET" && (url.pathname === "/" || /^\/editor\/[A-Za-z0-9_-]+$/.test(url.pathname))) return htmlResponse(renderHome());
+      if (request.method === "GET" && url.pathname === "/manifest.webmanifest") return manifestResponse(renderManifest());
+      if (request.method === "GET" && url.pathname === "/sw.js") return serviceWorkerResponse(renderServiceWorker());
+      if (request.method === "GET" && /^\/icons\/icon-(?:192|512)\.svg$/.test(url.pathname)) return iconResponse(renderAppIcon(url.pathname.includes("512") ? 512 : 192));
       if (request.method === "GET" && url.pathname === "/health") return jsonResponse({
         ok: true,
         version: "0.1.0",
-        capabilities: ["url-input", "text-input", "custom-icon", "icon-url", "argument-form", "script-fetch", "script-recovery", "native-js-lift", "aggressive-js-lift", "ruleset-conversion", "dynamic-subscription", "cache-bust-refresh", "browser-download", "fallback-snapshot"],
+        capabilities: ["url-input", "text-input", "custom-icon", "icon-url", "argument-form", "script-fetch", "script-recovery", "native-js-lift", "aggressive-js-lift", "ruleset-conversion", "dynamic-subscription", "cache-bust-refresh", "browser-download", "fallback-snapshot", "pwa", "ruleset-studio", "published-arrs", "workspace-key"],
       });
+      if (request.method === "POST" && url.pathname === "/api/workspaces") {
+        const limited = await rateLimit(request, env, "workspace-create");
+        if (limited) return limited;
+        return await handleWorkspaceCreate(request, env);
+      }
+      if (url.pathname.startsWith("/api/workspaces/")) {
+        const limited = await rateLimit(request, env, "workspace-edit");
+        if (limited) return limited;
+        return await handleWorkspaceApi(request, env, url);
+      }
+      if (request.method === "GET" && /^\/s\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/rules\.arrs$/.test(url.pathname)) {
+        const limited = await rateLimit(request, env, "ruleset-subscribe");
+        if (limited) return limited;
+        return await handlePublishedRuleSet(request, env, url);
+      }
       if (request.method === "POST" && url.pathname === "/api/inspect") {
         const limited = await rateLimit(request, env, "inspect");
         if (limited) return limited;
@@ -55,6 +80,250 @@ export default {
     }
   },
 };
+
+async function handleWorkspaceCreate(request, env) {
+  const workspaceId = randomId(12);
+  const key = randomId(32);
+  const result = await callWorkspace(env, workspaceId, "init", { workspaceId, keyHash: await secretHash(key) });
+  if (result.error) return jsonResponse(result, result.status || 400);
+  const base = requestBaseUrl(request);
+  return jsonResponse({
+    workspace: result.workspace,
+    workspaceId,
+    editUrl: `${base}/editor/${workspaceId}#key=${key}`,
+    warning: "请保存管理链接。该链接是匿名工作区的唯一管理凭证，服务端无法找回。",
+  }, 201);
+}
+
+async function handleWorkspaceApi(request, env, url) {
+  const parts = url.pathname.split("/").filter(Boolean);
+  const workspaceId = parts[2] || "";
+  if (!/^[A-Za-z0-9_-]{8,80}$/.test(workspaceId)) return jsonResponse({ error: "bad_workspace_id" }, 400);
+  const key = workspaceKeyFromRequest(request);
+  if (!key) return jsonResponse({ error: "workspace_unauthorized", detail: "缺少工作区管理凭证。" }, 401);
+  const keyHash = await secretHash(key);
+  if (parts.length === 3 && request.method === "GET") {
+    return workspaceApiResponse(await callWorkspace(env, workspaceId, "list", { keyHash }), undefined, request);
+  }
+  if (parts.length === 4 && parts[3] === "rulesets" && request.method === "POST") {
+    const input = await readInput(request);
+    const document = ruleSetDocumentFromInput(input, randomId(10));
+    if (document.error) return jsonResponse(document, 422);
+    const result = await callWorkspace(env, workspaceId, "create", { keyHash, document: document.value });
+    if (!result.error && result.ruleSet) await putPublishedRuleSet(env, workspaceId, result.ruleSet);
+    return workspaceApiResponse(result, result.error ? undefined : 201, request);
+  }
+  const ruleSetId = parts[4] || "";
+  if (parts.length === 5 && parts[3] === "rulesets" && /^[A-Za-z0-9_-]{8,80}$/.test(ruleSetId)) {
+    if (request.method === "GET") return workspaceApiResponse(await callWorkspace(env, workspaceId, "read", { keyHash, ruleSetId }), undefined, request);
+    if (request.method === "PUT") {
+      const input = await readInput(request);
+      const document = ruleSetDocumentFromInput({ ...input, id: ruleSetId }, ruleSetId);
+      if (document.error) return jsonResponse(document, 422);
+      const ifMatch = request.headers.get("if-match") || input.revision;
+      const result = await callWorkspace(env, workspaceId, "save", { keyHash, document: document.value, ifMatch: Number(ifMatch) });
+      if (!result.error && result.ruleSet) await putPublishedRuleSet(env, workspaceId, result.ruleSet);
+      return workspaceApiResponse(result, undefined, request);
+    }
+    if (request.method === "DELETE") {
+      const result = await callWorkspace(env, workspaceId, "remove", { keyHash, ruleSetId });
+      if (!result.error) await deletePublishedRuleSet(env, workspaceId, ruleSetId);
+      return workspaceApiResponse(result);
+    }
+  }
+  return jsonResponse({ error: "workspace_route_not_found" }, 404);
+}
+
+function workspaceApiResponse(result, successStatus = undefined, request = undefined) {
+  if (result?.error) {
+    const status = result.error === "workspace_unauthorized" ? 401
+      : result.error === "ruleset_not_found" || result.error === "workspace_not_found" ? 404
+        : result.error === "ruleset_conflict" ? 409 : 400;
+    return jsonResponse(result, status);
+  }
+  if (request && result?.ruleSet) {
+    const workspaceId = new URL(request.url).pathname.split("/").filter(Boolean)[2];
+    result.ruleSet.subscriptionUrl = `${requestBaseUrl(request)}/s/${workspaceId}/${result.ruleSet.id}/rules.arrs`;
+  }
+  return jsonResponse(result, successStatus || 200);
+}
+
+async function handlePublishedRuleSet(request, env, url) {
+  const [, , workspaceId, ruleSetId] = url.pathname.split("/");
+  const cached = await getCachedPublishedRuleSet(request, env);
+  if (cached) return cached;
+  let ruleSet = await getPublishedRuleSet(env, workspaceId, ruleSetId);
+  if (!ruleSet) {
+    const result = await callWorkspace(env, workspaceId, "public", { ruleSetId });
+    if (result.error || !result.ruleSet) return textResponse("Rule set not found", 404);
+    ruleSet = result.ruleSet;
+    await putPublishedRuleSet(env, workspaceId, ruleSet);
+  }
+  const etag = `"${workspaceId}-${ruleSetId}-${ruleSet.revision}"`;
+  const headers = {
+    "content-type": "text/plain; charset=utf-8",
+    "content-disposition": `inline; filename="${safeRuleSetFilename(ruleSet.name)}.arrs"`,
+    "cache-control": `public, max-age=${ruleSetCacheTtl(env)}, stale-while-revalidate=86400`,
+    etag,
+    "x-converter-source": "rule-studio",
+    "x-ruleset-revision": String(ruleSet.revision),
+  };
+  if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+  const response = new Response(ruleSet.content, { headers });
+  await putCachedPublishedRuleSet(request, response.clone(), env);
+  return response;
+}
+
+function ruleSetDocumentFromInput(input, id) {
+  const result = buildArrs({
+    source: String(input?.source || ""),
+    name: input?.name,
+    routing: input?.routing,
+  });
+  if (!result.valid) return { error: "ruleset_invalid", detail: result.diagnostics.map((item) => item.message).join(" "), diagnostics: result.diagnostics };
+  return { value: { id, name: result.name, routing: result.routing, content: result.content, ruleCount: result.ruleCount, bytes: result.bytes } };
+}
+
+async function callWorkspace(env, workspaceId, action, payload = {}) {
+  if (env.RULESET_WORKSPACE) {
+    const stub = env.RULESET_WORKSPACE.get(env.RULESET_WORKSPACE.idFromName(workspaceId));
+    const response = await stub.fetch("https://ruleset.internal/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return response.json();
+  }
+  return memoryWorkspaceCall(workspaceId, action, payload);
+}
+
+function memoryWorkspaceCall(workspaceId, action, payload) {
+  let state = memoryRuleSetWorkspaces.get(workspaceId);
+  if (action === "init") {
+    if (!state) {
+      state = { id: workspaceId, keyHash: payload.keyHash, createdAt: Date.now(), updatedAt: Date.now(), rulesets: [] };
+      memoryRuleSetWorkspaces.set(workspaceId, state);
+      return { workspace: memoryWorkspaceSummary(state), created: true };
+    }
+    return { workspace: memoryWorkspaceSummary(state), created: false };
+  }
+  if (!state) return { error: "workspace_not_found" };
+  if (action === "public") return memoryPublicRuleSet(state, payload.ruleSetId);
+  if (!payload.keyHash || payload.keyHash !== state.keyHash) return { error: "workspace_unauthorized" };
+  if (action === "list") return { workspace: memoryWorkspaceSummary(state) };
+  const index = state.rulesets.findIndex((item) => item.id === payload.ruleSetId || item.id === payload.document?.id);
+  if (action === "read") return index < 0 ? { error: "ruleset_not_found" } : { ruleSet: { ...state.rulesets[index] } };
+  if (action === "create") {
+    if (state.rulesets.length >= 20) return { error: "workspace_ruleset_limit", detail: "每个工作区最多 20 份规则集。" };
+    if (memoryWorkspaceBytes(state) + payload.document.bytes > 32 * 1024 * 1024) return { error: "workspace_storage_limit", detail: "工作区总容量超过 32 MiB。" };
+    const item = { ...payload.document, revision: 1, createdAt: Date.now(), updatedAt: Date.now() };
+    state.rulesets.push(item);
+    state.updatedAt = Date.now();
+    return { ruleSet: { ...item }, workspace: memoryWorkspaceSummary(state) };
+  }
+  if (action === "save") {
+    if (index < 0) return { error: "ruleset_not_found" };
+    const current = state.rulesets[index];
+    if (Number(payload.ifMatch) !== current.revision) return { error: "ruleset_conflict", ruleSet: { ...current } };
+    if (memoryWorkspaceBytes(state) - current.bytes + payload.document.bytes > 32 * 1024 * 1024) return { error: "workspace_storage_limit", detail: "工作区总容量超过 32 MiB。" };
+    const item = { ...payload.document, revision: current.revision + 1, createdAt: current.createdAt, updatedAt: Date.now() };
+    state.rulesets[index] = item;
+    state.updatedAt = Date.now();
+    return { ruleSet: { ...item }, workspace: memoryWorkspaceSummary(state) };
+  }
+  if (action === "remove") {
+    if (index < 0) return { error: "ruleset_not_found" };
+    state.rulesets.splice(index, 1);
+    state.updatedAt = Date.now();
+    return { workspace: memoryWorkspaceSummary(state) };
+  }
+  return { error: "workspace_bad_action" };
+}
+
+function memoryWorkspaceSummary(state) {
+  return { id: state.id, createdAt: state.createdAt, updatedAt: state.updatedAt, ruleSets: state.rulesets.map(({ content, ...item }) => ({ ...item })) };
+}
+
+function memoryWorkspaceBytes(state) {
+  return state.rulesets.reduce((sum, item) => sum + Number(item.bytes || 0), 0);
+}
+
+function memoryPublicRuleSet(state, ruleSetId) {
+  const ruleSet = state.rulesets.find((item) => item.id === ruleSetId);
+  return ruleSet ? { ruleSet: { id: ruleSet.id, name: ruleSet.name, revision: ruleSet.revision, updatedAt: ruleSet.updatedAt, content: ruleSet.content } } : { error: "ruleset_not_found" };
+}
+
+async function putPublishedRuleSet(env, workspaceId, ruleSet) {
+  const key = publishedRuleSetKey(workspaceId, ruleSet.id);
+  const value = JSON.stringify({ id: ruleSet.id, name: ruleSet.name, revision: ruleSet.revision, updatedAt: ruleSet.updatedAt, content: ruleSet.content });
+  memoryPublishedRuleSets.set(key, value);
+  if (env.CONVERTER_KV) await env.CONVERTER_KV.put(key, value);
+}
+
+async function getPublishedRuleSet(env, workspaceId, ruleSetId) {
+  const key = publishedRuleSetKey(workspaceId, ruleSetId);
+  const memory = memoryPublishedRuleSets.get(key);
+  if (memory) return JSON.parse(memory);
+  if (!env.CONVERTER_KV) return null;
+  const value = await env.CONVERTER_KV.get(key);
+  return value ? JSON.parse(value) : null;
+}
+
+async function deletePublishedRuleSet(env, workspaceId, ruleSetId) {
+  const key = publishedRuleSetKey(workspaceId, ruleSetId);
+  memoryPublishedRuleSets.delete(key);
+  if (env.CONVERTER_KV) await env.CONVERTER_KV.delete(key);
+}
+
+function publishedRuleSetKey(workspaceId, ruleSetId) {
+  return `published-ruleset:${workspaceId}:${ruleSetId}`;
+}
+
+async function getCachedPublishedRuleSet(request, env) {
+  const ttl = ruleSetCacheTtl(env);
+  const cached = memoryPublicRuleSetCache.get(request.url);
+  if (cached && cached.expiresAt > Date.now()) return new Response(cached.body, { status: cached.status, headers: cached.headers });
+  if (ttl <= 0 || typeof caches === "undefined" || !caches.default) return null;
+  return caches.default.match(request);
+}
+
+async function putCachedPublishedRuleSet(request, response, env) {
+  const ttl = ruleSetCacheTtl(env);
+  if (ttl <= 0 || response.status !== 200) return;
+  const body = await response.clone().text();
+  memoryPublicRuleSetCache.set(request.url, { body, status: response.status, headers: Object.fromEntries(response.headers.entries()), expiresAt: Date.now() + ttl * 1000 });
+  if (typeof caches !== "undefined" && caches.default) await caches.default.put(request, response);
+}
+
+function ruleSetCacheTtl(env) {
+  const configured = Number(env.RULESET_CACHE_TTL_SECONDS || 300);
+  return Number.isFinite(configured) && configured >= 30 ? configured : 300;
+}
+
+function workspaceKeyFromRequest(request) {
+  const header = String(request.headers.get("authorization") || "");
+  return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+}
+
+function randomId(bytes) {
+  const value = new Uint8Array(bytes);
+  crypto.getRandomValues(value);
+  return [...value].map((item) => item.toString(16).padStart(2, "0")).join("");
+}
+
+async function secretHash(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(value || "")));
+  return [...new Uint8Array(digest)].map((item) => item.toString(16).padStart(2, "0")).join("");
+}
+
+function requestBaseUrl(request) {
+  const url = new URL(request.url);
+  return url.origin;
+}
+
+function safeRuleSetFilename(value) {
+  return String(value || "rule-set").replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, "_").slice(0, 96) || "rule-set";
+}
 
 async function handleInspect(request, env) {
   const input = await readInput(request);
@@ -977,7 +1246,7 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
       "content-type": "application/json; charset=utf-8",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type, authorization, if-match",
       "cache-control": "no-store",
       ...extraHeaders,
     },
@@ -1002,7 +1271,7 @@ function optionsResponse() {
     headers: {
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type, authorization, if-match",
       "access-control-max-age": "86400",
     },
   });
@@ -1013,6 +1282,34 @@ function htmlResponse(body) {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
+    },
+  });
+}
+
+function manifestResponse(body) {
+  return new Response(body, {
+    headers: {
+      "content-type": "application/manifest+json; charset=utf-8",
+      "cache-control": "public, max-age=3600",
+    },
+  });
+}
+
+function serviceWorkerResponse(body) {
+  return new Response(body, {
+    headers: {
+      "content-type": "application/javascript; charset=utf-8",
+      "cache-control": "no-cache",
+      "service-worker-allowed": "/",
+    },
+  });
+}
+
+function iconResponse(body) {
+  return new Response(body, {
+    headers: {
+      "content-type": "image/svg+xml; charset=utf-8",
+      "cache-control": "public, max-age=86400",
     },
   });
 }

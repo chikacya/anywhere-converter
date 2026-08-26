@@ -163,7 +163,12 @@ async function handlePublishedRuleSet(request, env, url) {
   const headers = {
     "content-type": "text/plain; charset=utf-8",
     "content-disposition": `inline; filename="${safeRuleSetFilename(ruleSet.name)}.arrs"`,
-    "cache-control": `public, max-age=${ruleSetCacheTtl(env)}, stale-while-revalidate=86400`,
+    // Published rule sets may be shared by multiple devices. Once the short
+    // freshness window ends, require a current response instead of letting a
+    // client or intermediary continue serving an older revision in the
+    // background. The Worker Cache API still keeps the normal TTL-based load
+    // shedding path; this only removes the 24-hour stale allowance.
+    "cache-control": `public, max-age=${ruleSetCacheTtl(env)}, must-revalidate`,
     etag,
     "x-converter-source": "rule-studio",
     "x-ruleset-revision": String(ruleSet.revision),

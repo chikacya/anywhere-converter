@@ -1107,7 +1107,7 @@ export function renderHome() {
             <div class="studio-icon-preview" id="studio-icon-preview"><img id="studio-icon-image" alt="规则集图标预览" hidden><span id="studio-icon-placeholder">图标</span></div>
             <div class="studio-icon-copy">
               <h4 id="studio-icon-title">自定义图标</h4>
-              <p>上传图片或读取图片 URL 后，会作为 Base64 写入 <code>icon-light</code>，随规则集一起保存和发布。</p>
+              <p>图标随规则集一起保存和发布，编码不会显示在下方规则编辑框中。</p>
               <div class="studio-icon-actions"><label class="btn" for="studio-icon-file">选择图片<input id="studio-icon-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden></label><button class="btn" id="studio-icon-remove" type="button" hidden>移除图标</button></div>
               <div class="studio-icon-url-row"><input id="studio-icon-url" type="url" inputmode="url" autocomplete="url" placeholder="https://example.com/icon.png" aria-label="规则集图标 URL"><button class="btn" id="studio-icon-load-url" type="button">读取 URL</button></div>
               <small id="studio-icon-status">支持 PNG、JPEG、WebP、GIF，最大 256 KiB。</small>
@@ -2368,6 +2368,7 @@ $done({ body: JSON.stringify(obj) });\`;
     let studioKey = workspaceKeyFromFragment() || (studioWorkspaceId ? localStorage.getItem("anywhere-converter-workspace-key:" + studioWorkspaceId) : "");
     let studioWorkspace = null;
     let studioRuleSet = null;
+    let studioIconValue = "";
     let studioDraftTimer = 0;
 
     document.querySelectorAll("[data-app-view]").forEach((button) => button.addEventListener("click", () => setAppView(button.dataset.appView)));
@@ -2539,6 +2540,7 @@ $done({ body: JSON.stringify(obj) });\`;
       studioEditorTitle.textContent = studioRuleSet.name || "规则集";
       studioName.value = studioRuleSet.name || "";
       studioRouting.value = String(studioRuleSet.routing || 0);
+      studioIconValue = "";
       studioSource.value = studioRuleSet.content || "";
       renderStudioIconPreview();
       studioSummary.textContent = (studioRuleSet.ruleCount || 0).toLocaleString() + " 条 · " + formatStudioBytes(studioRuleSet.bytes || 0) + " · v" + (studioRuleSet.revision || 1);
@@ -2558,7 +2560,7 @@ $done({ body: JSON.stringify(obj) });\`;
         const response = await studioFetch("/api/workspaces/" + studioWorkspaceId + "/rulesets/" + studioRuleSet.id, {
           method: "PUT",
           headers: { "content-type": "application/json", "if-match": String(studioRuleSet.revision || 1) },
-          body: JSON.stringify({ name: studioName.value, routing: Number(studioRouting.value), source: studioSource.value, revision: studioRuleSet.revision }),
+          body: JSON.stringify({ name: studioName.value, routing: Number(studioRouting.value), source: studioFullSource(), revision: studioRuleSet.revision }),
         });
         const data = await readStudioResponse(response);
         if (response.status === 409) throw new Error("此规则集已在另一处被更新，请重新打开后合并修改。");
@@ -2642,12 +2644,17 @@ $done({ body: JSON.stringify(obj) });\`;
       }
     }
 
+    function studioFullSource() {
+      const lines = studioSource.value.split("\\n");
+      if (studioIconValue) {
+        const routingIndex = lines.findIndex((line) => /^\\s*routing\\s*=/i.test(line));
+        lines.splice(routingIndex >= 0 ? routingIndex + 1 : 0, 0, "icon-light = " + studioIconValue);
+      }
+      return lines.join("\\n");
+    }
+
     function writeStudioIcon(base64) {
-      const lines = studioSource.value.split("\\n").filter((line) => !/^\\s*icon-light\\s*=/i.test(line));
-      const routingIndex = lines.findIndex((line) => /^\\s*routing\\s*=/i.test(line));
-      const index = routingIndex >= 0 ? routingIndex + 1 : Math.min(lines.length, 2);
-      lines.splice(index, 0, "icon-light = " + base64);
-      studioSource.value = lines.join("\\n").replace(/\\n{3,}/g, "\\n\\n");
+      studioIconValue = base64;
       renderStudioIconPreview();
       scheduleStudioDraft();
     }
@@ -2655,6 +2662,7 @@ $done({ body: JSON.stringify(obj) });\`;
     function removeStudioIcon() {
       const lines = studioSource.value.split("\\n").filter((line) => !/^\\s*icon-light\\s*=/i.test(line));
       studioSource.value = lines.join("\\n").replace(/\\n{3,}/g, "\\n\\n");
+      studioIconValue = "";
       studioIconFile.value = "";
       studioIconUrl.value = "";
       renderStudioIconPreview();
@@ -2664,7 +2672,11 @@ $done({ body: JSON.stringify(obj) });\`;
 
     function renderStudioIconPreview() {
       const match = studioSource.value.match(/^\\s*icon-light\\s*=\\s*(.+)\\s*$/im);
-      const raw = match?.[1]?.trim() || "";
+      if (match) {
+        studioIconValue = match[1].trim();
+        studioSource.value = studioSource.value.split("\\n").filter((line) => !/^\\s*icon-light\\s*=/i.test(line)).join("\\n");
+      }
+      const raw = studioIconValue;
       if (!raw) {
         studioIconImage.removeAttribute("src");
         studioIconImage.hidden = true;
@@ -2755,7 +2767,7 @@ $done({ body: JSON.stringify(obj) });\`;
       if (!studioRuleSet) return;
       clearTimeout(studioDraftTimer);
       studioDraftTimer = setTimeout(async () => {
-        await writeStudioDraft(studioRuleSet.id, { name: studioName.value, routing: Number(studioRouting.value), content: studioSource.value, updatedAt: Date.now() });
+        await writeStudioDraft(studioRuleSet.id, { name: studioName.value, routing: Number(studioRouting.value), content: studioFullSource(), updatedAt: Date.now() });
         studioStatusText("草稿已保存在此设备，尚未发布。", false);
       }, 450);
     }

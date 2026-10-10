@@ -62,3 +62,7 @@ These links preserve the original module or rule-set URL in the subscription, so
 ## Script Cost Metrics
 
 Conversion reports include `scriptRuleCount`, `totalScriptBytes`, and `maxPerHitScriptBytes`. The last value is the most relevant hot-path number because Anywhere compiles the selected script source for every invocation and executes at most one buffered script per message. Native-only outputs report zero script bytes.
+
+As of 2026-10-10, complete AST validation gates JavaScript lifts. Static runners share source across parameter variants; body-only scripts use a smaller adapter and decode text lazily. Dispatcher parts are awaited sequentially. Acorn is bundled into the Worker, not downloaded by the browser.
+
+Optional `outputFormat=amod` bundles children without changing their format. A conservative encoded-model budget falls back to standalone files. Dynamic split subscriptions use a zero-based `part` query parameter. Published Rule Studio memory copies expire; HTTP caching cannot extend their remaining freshness window. See [local review](review-20261010.md).

@@ -1,11 +1,11 @@
 # Anywhere Native Capability Audit
 
-This table is generated from the current Anywhere MITM script engine source and documents how the generic converter uses those native capabilities. It is a guardrail: adding a converter feature should update this file and the tests together.
+This table is maintained against Anywhere source (2026-10-10: ea12a6e5), not automatically generated. It documents mappings and deliberate non-mappings. Adding a converter feature should update this file and the tests together.
 
 | Anywhere native capability | Source API shape | Converter status | Notes |
 | --- | --- | --- | --- |
 | `Anywhere.codec.utf8` | `encode`, `decode` | bridged | Used by wrappers and generated scripts. Also backs `TextEncoder` / `TextDecoder` fallback. |
-| `Anywhere.codec.base64` | `encode`, `decode` | bridged | Used for script loading and `atob` / `btoa` fallback. |
+| `Anywhere.codec.base64` | `encode`, `decode` | bridged | AMRS scripts are base64; wrappers now use static runners, not internal base64 source loading. Also backs `atob` / `btoa` fallback. |
 | `Anywhere.codec.base64url` | `encode`, `decode` | documented only | Available to hand-written scripts. No common Loon/Surge API needs automatic mapping yet. |
 | `Anywhere.codec.hex` | `encode`, `decode` | documented only | Available to hand-written scripts. |
 | `Anywhere.codec.gzip` | `encode`, `decode` | bridged | Exposed through `$utils.gzip` / `$utils.ungzip`. |
@@ -28,6 +28,8 @@ This table is generated from the current Anywhere MITM script engine source and 
 | Response body codec negotiation | Accept-Encoding clamp + Content-Encoding decode | native runtime | Converter relies on Anywhere's runtime clamp/decode for body rules and no longer emits synthetic `accept-encoding: identity` preprocess rules. |
 
 ## Explicit Non-Goals
+
+Module `.amod` output is optional, with conservative native model budgets. URL/timers are not native globals: common HTTP(S) URL operations are shimmed, genuine delays are not fabricated. Native JSON preserves precision/unchanged text differently from JS; sample-required diagnostics remain. See [review](review-20261010.md).
 
 - The converter does not translate arbitrary `crypto.subtle` workflows into `Anywhere.crypto`.
 - The converter does not translate generic protobuf bundles into field-level native edits.

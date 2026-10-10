@@ -125,6 +125,7 @@ const result = await convertAnyAsync(source, {
   name: args.name,
   mode: args.mode,
   sourceKind: args.sourceKind,
+  outputFormat: args.outputFormat,
   ruleSetRouting: args.ruleSetRouting,
   arguments: parseArgumentOverrides(args),
   preserveParameters: args.preserveParameters === true || args.preserveParameters === "1" || args.preserveParameters === "true",

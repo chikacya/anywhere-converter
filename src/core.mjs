@@ -1,3 +1,6 @@
+import { liftResponseScript, liftRequestStatic, parseScript } from "./js-lift.mjs";
+import { packageAmod, splitAmod, moduleBudget } from "./amod.mjs";
+
 const ROUTING = {
   default: 0,
   direct: 1,
@@ -53,7 +56,7 @@ export function convertModule(source, options = {}) {
   const referencedArguments = preserveParameters ? collectReferencedArguments(parsed.items) : new Set();
   const parameterState = preserveParameters ? amrsParameterStateFromArguments(parsed.arguments, argumentValues, diagnostics, { referencedArguments }) : { parameters: [], nameMap: {} };
   if (mode === "aggressive") {
-    diagnostics.push({ level: "warning", code: "aggressive-mode", message: "aggressive 模式是实验入口；protobuf/binary/复杂脚本仍需样本验证。", line: 0, source: "" });
+    diagnostics.push({ level: "warning", code: "aggressive-mode", message: "旧 aggressive 参数仍兼容，但不再启用未经完整证明的 JSON 提升；当前采用与 compat 相同的安全策略。", line: 0, source: "" });
   }
   let mitmRules = [];
   const routingGroups = new Map();
@@ -409,17 +412,23 @@ export function detectSourceKind(source) {
 
 export function convertAny(source, options = {}) {
   const sourceKind = normalizeSourceKind(options.sourceKind, source);
-  if (sourceKind === "ruleset") return convertRuleSet(source, options);
+  if (sourceKind === "ruleset") return finalizeOutput(convertRuleSet(source, options), options);
   const result = convertModule(source, options);
   result.sourceKind = "module";
-  return result;
+  return finalizeOutput(result, options);
 }
 
 export async function convertAnyAsync(source, options = {}) {
   const sourceKind = normalizeSourceKind(options.sourceKind, source);
-  if (sourceKind === "ruleset") return convertRuleSet(source, options);
+  if (sourceKind === "ruleset") return finalizeOutput(convertRuleSet(source, options), options);
   const result = await convertModuleAsync(source, options);
   result.sourceKind = "module";
+  return finalizeOutput(result, options);
+}
+
+function finalizeOutput(result, options) {
+  packageAmod(result, options);
+  result.report = buildReport({ ...result.report, files: result.files, diagnostics: result.diagnostics });
   return result;
 }
 
@@ -1057,6 +1066,15 @@ function chunkRules(rules, maxRules) {
 }
 
 export function validateAnywhereOutput(file) {
+  if (file.type === "amod" || file.name?.endsWith(".amod")) {
+    const diagnostics = moduleBudget(file.content).errors.map(message => ({ level: "error", code: "amod-limit", message }));
+    for (const section of splitAmod(file.content)) {
+      if (section.type === "module") continue;
+      const type = section.type === "mitm" ? "amrs" : "arrs";
+      diagnostics.push(...validateAnywhereOutput({ type, content: section.content }));
+    }
+    return diagnostics;
+  }
   const diagnostics = [];
   const lines = String(file.content || "").replace(/\r\n?/g, "\n").split("\n");
   const isAmrs = file.name?.endsWith(".amrs") || file.type === "amrs";
@@ -1493,8 +1511,9 @@ function convertScriptLine(item, options) {
     if (status) return { code: status.code, message: status.message || "脚本没有可用 source；请补全脚本文本。" };
     return { code: "script-source-missing", message: "脚本没有可用 source；请开启脚本下载或提供 scriptTextByURL。" };
   }
+  if (!parseScript(source)) return { code: "script-syntax-invalid", message: "脚本无法解析，未生成会导致整个 dispatcher 编译失败的代码。" };
   if (options.jsLift !== false) {
-    const requestLift = liftRequestMutationScript(source, parsed);
+    const requestLift = liftRequestStatic(source, parsed);
     if (requestLift.length) {
       diagnostics.push({ level: "info", code: "script-request-lift", message: `已将 ${requestLift.length} 个静态 request mutation 提升为 Anywhere 原生请求规则。` });
       return { rule: requestLift.map((rule) => ({ ...rule, pattern: urlGate(parsed.pattern) })), diagnostics };
@@ -1514,22 +1533,11 @@ function convertScriptLine(item, options) {
   const hardBlock = diagnostics.find((diagnostic) => diagnostic.level === "error");
   if (hardBlock) return { code: hardBlock.code, message: hardBlock.message };
   if (options.jsLift !== false) {
-    const lifted = liftScriptToNativeRules(source, parsed);
+    const lifted = liftResponseScript(source, parsed);
     if (lifted.length) {
       diagnostics.push({ level: "info", code: "script-native-lift", message: `已将 ${lifted.length} 个简单 JS body 操作提升为 Anywhere 原生规则；未执行任意 JS 语义猜测。` });
+      if (lifted.some(rule => rule.op === 5)) diagnostics.push({ level: "warning", code: "script-native-json-sample-required", message: "JSON 操作使用原生对象语义；大整数精度、无变更时原文保留及序列化格式可能与 JS stringify 不同，请验证响应样本。" });
       return { rule: lifted.map((rule) => ({ ...rule, pattern: urlGate(parsed.pattern) })), diagnostics };
-    }
-    const guardedLifted = liftGuardedJsonBranchRules(source, parsed, { aggressive: false });
-    if (guardedLifted.length) {
-      diagnostics.push({ level: "info", code: "script-native-lift", message: `已将 ${guardedLifted.length} 个 URL 分支内静态 JSON 操作提升为 Anywhere 原生规则；未执行任意 JS 语义猜测。` });
-      return { rule: guardedLifted, diagnostics };
-    }
-    if (options.mode === "aggressive") {
-      const aggressiveLifted = liftAggressiveScriptToNativeRules(source, parsed);
-      if (aggressiveLifted.length) {
-        diagnostics.push({ level: "info", code: "script-aggressive-native-lift", message: `aggressive 模式已将 ${aggressiveLifted.length} 个 URL 分支内静态 JSON 操作提升为 Anywhere 原生规则。` });
-        return { rule: aggressiveLifted, diagnostics };
-      }
     }
     const respond = liftRequestRespondScript(source, parsed);
     if (respond) {
@@ -1636,6 +1644,11 @@ function scanScriptRisk(source, parsed, rawLine) {
     diagnostics.push({ level: "warning", code: "script-node-require-branch", message: "脚本包含 require 调用；常见 Env 模板的 Node.js 分支可保留，但需实机验证未执行该分支。" });
   }
   const codeWithoutStrings = stripJsStrings(stripJsComments(source));
+  if (/\b(?:URL|URLSearchParams)\b/.test(codeWithoutStrings)) diagnostics.push({ level: "warning", code: "script-url-api-sample-required", message: "URL/searchParams 使用常用 HTTP(S) 兼容子集，不是完整 WHATWG URL；复杂地址和不支持的 API 需样本验证。" });
+  if (parsed.phase === 0 && /\$request\.(?:url|headers|method)\s*=|\$request\.headers\s*\[|\$done\s*\(\s*\$request\s*\)/.test(codeWithoutStrings)) diagnostics.push({ level: "error", code: "request-mutation-script", message: "完整请求脚本不能安全提升；Anywhere 的请求头、URL 和 method 为只读，请手工转换。" });
+  if (/\b(?:setTimeout|setInterval)\s*\(/.test(codeWithoutStrings)) {
+    diagnostics.push({ level: "warning", code: "script-timer-sample-required", message: "Anywhere 没有原生 timer；只支持零延时微任务，真实延时与 setInterval 会明确报错并透传，需人工适配。" });
+  }
   if (/\beval\s*\(|\bnew\s+Function\s*\(|\bFunction\s*\(/.test(codeWithoutStrings)) {
     diagnostics.push({ level: "warning", code: "script-dynamic-sample-required", message: "脚本运行时可能执行 eval/new Function 动态代码，已保留但需要样本和实机验证。" });
   }
@@ -1676,23 +1689,11 @@ function isLikelyStreamingScriptTarget(parsed, source = "") {
   return /text\/event-stream|event-stream|application\/(?:x-)?ndjson|jsonl|stream\+json|json-seq|(?:^|[/?&])sse(?:[/?&#\s]|$)|(?:^|[/?&])events?(?:[/?&#\s]|$)|(?:^|[/?&])stream(?:[/?&#\s]|$)|\bgrpc\b/.test(haystack);
 }
 
-function liftScriptToNativeRules(source, parsed) {
-  if (parsed.phase !== 1 || parsed.binaryBodyMode) return [];
-  const text = stripJsComments(String(source || ""));
-  if (!hasBodyCompletion(text)) return [];
-  const recursiveDeleteRules = liftRecursiveDeleteRules(text);
-  if (recursiveDeleteRules.length) return recursiveDeleteRules;
-  if (hasControlFlow(text)) return [];
-
-  const bodyReplace = liftBodyReplaceScript(text);
-  if (bodyReplace) return [bodyReplace];
-
-  const jsonRules = liftJsonMutationScript(text);
-  return jsonRules.length ? jsonRules : [];
-}
 
 function liftRequestRespondScript(source, parsed) {
   if (parsed.phase !== 0) return null;
+  const ast = parseScript(source);
+  if (!ast || ast.body.filter(x => x.type !== "EmptyStatement").length !== 1) return null;
   const text = stripJsComments(String(source || ""));
   if (hasControlFlow(text) || /=>/.test(stripJsStrings(text))) return null;
   const responseBody = extractDoneResponseObject(text);
@@ -1714,66 +1715,12 @@ function liftRequestRespondScript(source, parsed) {
   return { phase: 0, op: 100, pattern: urlGate(parsed.pattern), fields: [base64(script)], scriptSource: script, noScriptMerge: true };
 }
 
-function liftRequestMutationScript(source, parsed) {
-  if (parsed.phase !== 0) return [];
-  const text = stripJsComments(String(source || ""));
-  if (!/\$done\s*\(\s*(?:\$request|\{[\s\S]*?\})\s*\)\s*;?\s*$/.test(text)) return [];
-  if (hasControlFlow(text) || /=>|\$httpClient\b/.test(stripJsStrings(text))) return [];
-  const constants = extractLiteralConstants(text);
-  const rules = [];
-
-  const doneObject = extractDoneRequestObject(text);
-  if (doneObject) {
-    const doneUrl = propertyValueFromObjectLiteral(doneObject, ["url"]);
-    const target = parseJsStringForBodyReplace(doneUrl) ?? constants.get(doneUrl);
-    if (target) rules.push({ phase: 0, op: 0, pattern: "", fields: ["0", target] });
-
-    const doneHeaders = propertyValueFromObjectLiteral(doneObject, ["headers"]);
-    const headerPairs = parseStaticHeadersLiteral(doneHeaders);
-    if (headerPairs) {
-      for (const [name, value] of headerPairs) rules.push({ phase: 0, op: 3, pattern: "", fields: [name, value] });
-    }
-  }
-
-  const urlMatch = text.match(/\$request\.url\s*=\s*(["'][^"']+["']|[A-Za-z_$][\w$]*)\s*;?/);
-  if (urlMatch) {
-    const target = parseJsStringForBodyReplace(urlMatch[1]) ?? constants.get(urlMatch[1]);
-    if (target) rules.push({ phase: 0, op: 0, pattern: "", fields: ["0", target] });
-  }
-
-  const urlReplaceMatch = text.match(/\$request\.url\s*=\s*\$request\.url\.replace\s*\(\s*\/((?:\\\/|[^/])+)\/[a-z]*\s*,\s*(["'][^"']+["']|[A-Za-z_$][\w$]*)\s*\)\s*;?/);
-  if (urlReplaceMatch) {
-    const target = parseJsStringForBodyReplace(urlReplaceMatch[2]) ?? constants.get(urlReplaceMatch[2]);
-    if (target && /^https?:\/\//i.test(target)) rules.push({ phase: 0, op: 0, pattern: "", fields: ["0", target] });
-  }
-
-  const headerSetPattern = /\$request\.headers(?:\[\s*(["'][^"']+["']|[A-Za-z_$][\w$]*)\s*\]|\.([A-Za-z_$][\w$-]*))\s*=\s*(["'][^"']*["']|[A-Za-z_$][\w$]*)\s*;?/g;
-  for (const match of text.matchAll(headerSetPattern)) {
-    const name = parseJsStringForBodyReplace(match[1]) || constants.get(match[1]) || match[2];
-    const value = parseJsStringForBodyReplace(match[3]) ?? constants.get(match[3]);
-    if (name && value != null) rules.push({ phase: 0, op: 3, pattern: "", fields: [name, value] });
-  }
-
-  const headerDeletePattern = /delete\s+\$request\.headers(?:\[\s*(["'][^"']+["']|[A-Za-z_$][\w$]*)\s*\]|\.([A-Za-z_$][\w$-]*))\s*;?/g;
-  for (const match of text.matchAll(headerDeletePattern)) {
-    const name = parseJsStringForBodyReplace(match[1]) || constants.get(match[1]) || match[2];
-    if (name) rules.push({ phase: 0, op: 2, pattern: "", fields: [name] });
-  }
-
-  const headerAssignPattern = /Object\.assign\s*\(\s*\$request\.headers\s*,\s*(\{[\s\S]*?\})\s*\)\s*;?/g;
-  for (const match of text.matchAll(headerAssignPattern)) {
-    const headerPairs = parseStaticHeadersLiteral(match[1]);
-    if (!headerPairs) continue;
-    for (const [name, value] of headerPairs) rules.push({ phase: 0, op: 3, pattern: "", fields: [name, value] });
-  }
-
-  return rules;
-}
 
 function liftRequestQueryRedirectScript(source, parsed) {
   if (parsed.phase !== 0) return null;
   const text = stripJsComments(String(source || ""));
   const stripped = stripJsStrings(text);
+  if (/(?:\$[A-Za-z_][\w$]*)/.test(stripped.replace(/\$request\b|\$done\b/g, "")) || /\b(?:async|await|Promise|globalThis|setTimeout|setInterval)\b/.test(stripped)) return null;
   if (!/\$request\.url/.test(text) || !/decodeURIComponent\s*\(/.test(text)) return null;
   if (!/\$done\s*\(\s*\{\s*response\s*:/.test(text)) return null;
   if (!/\bstatus\s*:\s*302\b/.test(text)) return null;
@@ -1781,24 +1728,16 @@ function liftRequestQueryRedirectScript(source, parsed) {
   if (/\$httpClient\b|\$task\b|\b(?:fetch|XMLHttpRequest|eval|Function)\b/.test(stripped)) return null;
   const params = extractRedirectQueryParams(text);
   if (!params.length) return null;
+  if (parsed.argument || parsed.runtimeArgument) return null;
   const script = `function process(ctx) {
   if (ctx.phase !== "request" || !ctx.url) return;
-  var query = String(ctx.url).split("?")[1] || "";
-  var params = ${JSON.stringify(params)};
-  for (var i = 0; i < params.length; i++) {
-    var match = query.match(new RegExp("(?:^|&)" + params[i] + "=([^&]+)"));
-    if (!match) continue;
-    try {
-      var target = decodeURIComponent(match[1]);
-      if (!/^https?:\\/\\//.test(target)) return;
-      Anywhere.respond({
-        status: 302,
-        headers: [["location", target], ["cache-control", "no-cache"]],
-        body: ""
-      });
-      return;
-    } catch (_) {}
-  }
+  var directive;
+  try {
+    (function ($request, $done) {
+${source}
+    })({ url: ctx.url, method: ctx.method, headers: Object.fromEntries(ctx.headers || []) }, function (value) { directive = value; });
+    if (directive && directive.response) Anywhere.respond(directive.response);
+  } catch (error) { Anywhere.log.error(String(error)); }
 }`;
   return { phase: 0, op: 100, pattern: urlGate(parsed.pattern), fields: [base64(script)], scriptSource: script, noScriptMerge: true };
 }
@@ -1807,6 +1746,7 @@ function liftRequestUrlProxyScript(source, parsed) {
   if (parsed.phase !== 0) return null;
   const text = stripJsComments(String(source || ""));
   const stripped = stripJsStrings(text);
+  if (parsed.argument || parsed.runtimeArgument || /(?:\$[A-Za-z_][\w$]*)/.test(stripped.replace(/\$request\b|\$done\b/g, "")) || /\b(?:async|await|Promise|globalThis|setTimeout|setInterval)\b/.test(stripped)) return null;
   if (!/\$request\.url/.test(text)) return null;
   if (!/\$done\s*\(\s*\{\s*(?:url\b|url\s*:)/.test(text)) return null;
   if (/\$httpClient\b|\$task\b|\b(?:fetch|XMLHttpRequest|eval|Function|importScripts|require)\b/.test(stripped)) return null;
@@ -1830,16 +1770,12 @@ function liftRequestUrlProxyScript(source, parsed) {
 
   const script = `async function process(ctx) {
   if (ctx.phase !== "request" || !ctx.url) return;
-  var target = String(ctx.url);
-  var replacements = ${JSON.stringify(replacements)};
-  for (var i = 0; i < replacements.length; i++) {
-    var item = replacements[i];
-    if (item.kind === "regex") {
-      target = target.replace(new RegExp(item.search, item.flags || ""), item.replacement);
-    } else {
-      target = target.replace(item.search, item.replacement);
-    }
-  }
+  var directive;
+  try { (function ($request, $done) {
+${source}
+  })({ url: ctx.url }, function (value) { directive = value; }); }
+  catch (error) { Anywhere.log.error(String(error)); return; }
+  var target = directive && directive.url;
   if (target === ctx.url || !/^https?:\\/\\//i.test(target)) return;
   var headers = [];
   (ctx.headers || []).forEach(function (header) {
@@ -1988,13 +1924,6 @@ function liftBodyReplaceScript(text) {
   return { phase: 1, op: 4, pattern: "", fields: [match[1].replaceAll("\\/", "/"), replacement] };
 }
 
-function liftJsonMutationScript(text) {
-  const variable = findJsonParseVariable(text);
-  if (!variable) return [];
-  if (!hasJsonBodyOutput(text, variable)) return [];
-
-  return liftJsonMutationRulesFromText(text, variable);
-}
 
 function hasBodyCompletion(text) {
   return /\$done\s*\(\s*\{[^}]*\bbody\s*:/.test(text)
@@ -2036,60 +1965,8 @@ function liftJsonMutationRulesFromText(text, variable) {
   return rules;
 }
 
-function liftGuardedJsonBranchRules(source, parsed, { aggressive = false } = {}) {
-  if (parsed.phase !== 1 || parsed.binaryBodyMode) return [];
-  const text = stripJsComments(String(source || ""));
-  if (!hasBodyCompletion(text)) return [];
-  const variable = findJsonParseVariable(text);
-  if (!variable) return [];
-  if (!hasJsonBodyOutput(text, variable)) return [];
-  const stripped = stripJsStrings(text);
-  if (/\b(?:fetch|XMLHttpRequest|eval|Function|importScripts|require)\b|\$httpClient\b|\$task\s*\.\s*fetch\b/.test(stripped)) return [];
 
-  const rules = [];
-  const urlVariables = findRequestUrlVariables(text);
-  for (const block of extractIfBlocks(text)) {
-    const branchPattern = urlGuardToPattern(block.condition, parsed.pattern, urlVariables);
-    if (!branchPattern) continue;
-    const strippedBody = stripJsStrings(block.body);
-    if (hasUnsafeBranchControlFlow(block.body) || /=>\s*\{/.test(strippedBody)) continue;
-    if (new RegExp(`\\b(?!if\\b)[A-Za-z_$][\\w$]*\\s*\\(\\s*${escapeRegExp(variable)}\\b`).test(stripJsStrings(block.body))) continue;
-    if (new RegExp(`\\b${escapeRegExp(variable)}\\s*=`).test(stripJsStrings(block.body))) continue;
-    let branchRules = aggressive
-      ? liftAggressiveJsonMutationRulesFromText(block.body, variable)
-      : liftJsonMutationRulesFromText(block.body, variable);
-    if (/\bif\b/.test(strippedBody)) branchRules = branchRules.filter((rule) => rule.fields[0] === "delete");
-    for (const rule of branchRules) {
-      rules.push({ ...rule, pattern: branchPattern });
-    }
-  }
-  return rules;
-}
 
-function liftAggressiveScriptToNativeRules(source, parsed) {
-  if (parsed.phase !== 1 || parsed.binaryBodyMode) return [];
-  const text = stripJsComments(String(source || ""));
-  const variable = findJsonParseVariable(text);
-  if (!variable) return [];
-  if (!hasBodyCompletion(text) || !hasJsonBodyOutput(text, variable)) return [];
-  const stripped = stripJsStrings(text);
-  if (/\b(?:fetch|XMLHttpRequest|eval|Function|importScripts|require)\b|\$httpClient\b|\$task\s*\.\s*fetch\b/.test(stripped)) return [];
-
-  const guarded = liftGuardedJsonBranchRules(source, parsed, { aggressive: true });
-  if (guarded.length) return guarded;
-  if (hasControlFlow(text)) return [];
-  return liftAggressiveJsonMutationRulesFromText(text, variable).map((rule) => ({ ...rule, pattern: urlGate(parsed.pattern) }));
-}
-
-function liftAggressiveJsonMutationRulesFromText(text, variable) {
-  const rules = liftJsonMutationRulesFromText(text, variable);
-  const spliceClearPattern = new RegExp(`${escapeRegExp(variable)}((?:\\.[A-Za-z_$][\\w$]*|\\[['"][^'"]+['"]\\])+?)\\.splice\\s*\\(\\s*0\\s*(?:,\\s*${escapeRegExp(variable)}\\1\\.length\\s*)?\\)\\s*;`, "g");
-  for (const match of text.matchAll(spliceClearPattern)) {
-    const path = jsonPathFromJsAccess(match[1]);
-    if (path) rules.push({ phase: 1, op: 5, pattern: "", fields: ["replace", path, "[]"] });
-  }
-  return rules;
-}
 
 function extractIfBlocks(text) {
   const blocks = [];
@@ -2527,7 +2404,8 @@ function escapeRegExp(value) {
 }
 
 function wrapLoonSurgeScript(source, parsed) {
-  const encodedSource = base64(source);
+  const stripped = stripJsStrings(stripJsComments(source));
+  if (!parsed.runtimeArgument && !/\b(?:Env|URL|URLSearchParams|TextEncoder|TextDecoder|atob|btoa|crypto|fetch|setTimeout|setInterval|clearTimeout|clearInterval|require|eval|Function|globalThis)\b|\$(?!(?:request|response|done|argument)\b)[A-Za-z_]/.test(stripped)) return wrapBodyScript(source, parsed);
   const phase = parsed.phase === 0 ? "request" : "response";
   const argument = String(parsed.argument || "");
   const runtimeArgument = parsed.runtimeArgument || null;
@@ -2549,8 +2427,9 @@ function wrapLoonSurgeScript(source, parsed) {
     : JSON.stringify(argument);
   const timeoutMs = parsed.timeoutMs || 4500;
   const binaryBodyMode = parsed.binaryBodyMode === true;
-  return `async function process(ctx) {
-  var __source = Anywhere.codec.utf8.decode(Anywhere.codec.base64.decode("${encodedSource}"));
+  const runnerName = "__converter_runner_" + sourceId(source);
+  const runnerArgs = "$request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, setTimeout, clearTimeout, setInterval, clearInterval, URL, URLSearchParams, TextEncoder, TextDecoder, atob, btoa, fetch, crypto";
+  return `function ${runnerName}(${runnerArgs}) {\n${source}\n}\nasync function process(ctx) {
   var __binaryBodyMode = ${binaryBodyMode ? "true" : "false"};
   function __bodyIn(value) {
     if (!value) return new Uint8Array();
@@ -2559,9 +2438,14 @@ function wrapLoonSurgeScript(source, parsed) {
     if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     return value;
   }
-  var __bodyBytes = __bodyIn(ctx.body);
-  var __bodyText = "";
-  try { if (ctx.body && !__binaryBodyMode) __bodyText = Anywhere.codec.utf8.decode(ctx.body); } catch (_) { __bodyText = ""; }
+  var __bodyBytes = new Uint8Array(__bodyIn(ctx.body));
+  var __bodyText;
+  function __textBody() {
+    if (__bodyText === undefined) {
+      try { __bodyText = ctx.body ? Anywhere.codec.utf8.decode(ctx.body) : ""; } catch (_) { __bodyText = ""; }
+    }
+    return __bodyText;
+  }
   var __finished = false;
   var __resolveDone;
   var __donePromise = new Promise(function (resolve) { __resolveDone = resolve; });
@@ -2580,24 +2464,21 @@ function wrapLoonSurgeScript(source, parsed) {
   var __nativeCrypto = typeof globalThis !== "undefined" && globalThis.crypto ? globalThis.crypto : null;
   function __setTimeout(callback, ms) {
     if (__nativeSetTimeout) return __nativeSetTimeout(callback, ms);
+    if (Number(ms) > 0) throw new Error("Anywhere has no native timers: positive setTimeout delay is unsupported");
     var id = __timerSeed++;
     __timers[id] = true;
     Promise.resolve().then(function () {
       if (!__timers[id]) return;
       delete __timers[id];
-      if (typeof callback === "function") callback();
+      try { if (typeof callback === "function") callback(); }
+      catch (error) { Anywhere.log.error(String(error)); __finishUnchanged(); }
     });
     return id;
   }
   function __clearTimeout(id) { if (__nativeClearTimeout) return __nativeClearTimeout(id); delete __timers[id]; }
   function __setInterval(callback, ms) {
     if (__nativeSetInterval) return __nativeSetInterval(callback, ms);
-    var id = __timerSeed++;
-    __timers[id] = true;
-    Promise.resolve().then(function () {
-      if (__timers[id] && typeof callback === "function") callback();
-    });
-    return id;
+    throw new Error("Anywhere has no native timers: setInterval is unsupported");
   }
   function __clearInterval(id) { if (__nativeClearInterval) return __nativeClearInterval(id); delete __timers[id]; }
   function __TextEncoderShim() {}
@@ -2660,27 +2541,42 @@ function wrapLoonSurgeScript(source, parsed) {
   };
   __URLSearchParamsShim.prototype.set = function (key, value) {
     key = String(key);
+    var found = false;
     for (var i = 0; i < this.__pairs.length; i++) {
       if (this.__pairs[i][0] === key) {
-        this.__pairs[i][1] = String(value);
-        return;
+        if (found) { this.__pairs.splice(i--, 1); }
+        else { this.__pairs[i][1] = String(value); found = true; }
       }
     }
-    this.__pairs.push([key, String(value)]);
+    if (!found) this.__pairs.push([key, String(value)]);
+    if (this.__update) this.__update();
   };
-  __URLSearchParamsShim.prototype.append = function (key, value) { this.__pairs.push([String(key), String(value)]); };
+  __URLSearchParamsShim.prototype.append = function (key, value) { this.__pairs.push([String(key), String(value)]); if (this.__update) this.__update(); };
+  __URLSearchParamsShim.prototype.getAll = function (key) { return this.__pairs.filter(function (p) { return p[0] === String(key); }).map(function (p) { return p[1]; }); };
+  __URLSearchParamsShim.prototype.delete = function (key) { this.__pairs = this.__pairs.filter(function (p) { return p[0] !== String(key); }); if (this.__update) this.__update(); };
+  __URLSearchParamsShim.prototype.forEach = function (callback, self) { var that = this; this.__pairs.forEach(function (p) { callback.call(self, p[1], p[0], that); }); };
   __URLSearchParamsShim.prototype.toString = function () {
     var out = [];
-    for (var i = 0; i < this.__pairs.length; i++) out.push(encodeURIComponent(this.__pairs[i][0]) + "=" + encodeURIComponent(this.__pairs[i][1]));
+    function encode(value) { return encodeURIComponent(value).replace(/[!'()~]/g, function (c) { return "%" + c.charCodeAt(0).toString(16).toUpperCase(); }).replace(/%20/g, "+"); }
+    for (var i = 0; i < this.__pairs.length; i++) out.push(encode(this.__pairs[i][0]) + "=" + encode(this.__pairs[i][1]));
     return out.join("&");
   };
   var __NativeURL = typeof globalThis !== "undefined" && typeof globalThis.URL === "function" ? globalThis.URL : null;
   var __NativeURLSearchParams = typeof globalThis !== "undefined" && typeof globalThis.URLSearchParams === "function" ? globalThis.URLSearchParams : null;
-  function __URLShim(input) {
-    if (__NativeURL) return new __NativeURL(input);
+  function __URLShim(input, base) {
+    if (__NativeURL) return new __NativeURL(input, base);
     var raw = String(input || "");
+    if (!/^https?:\\/\\//i.test(raw) && base) {
+      var parent = new __URLShim(String(base));
+      if (raw.slice(0, 2) === "//") raw = parent.protocol + raw;
+      else if (raw.charAt(0) === "?") raw = parent.origin + parent.pathname + raw;
+      else if (raw.charAt(0) === "#") raw = parent.origin + parent.pathname + parent.search + raw;
+      else raw = parent.origin + (raw.charAt(0) === "/" ? raw : parent.pathname.replace(/[^/]*$/, "") + raw);
+    }
     var match = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*:)?\\/\\/([^/?#]*)([^?#]*)(\\?[^#]*)?(#.*)?$/);
+    if (!match || !/^https?:$/i.test(match[1] || "") || !match[2]) throw new TypeError("URL shim expects an absolute HTTP(S) URL or a valid base");
     var authority = match ? match[2] : "";
+    if (!/^[A-Za-z0-9.-]+(?::[0-9]+)?$/.test(authority)) throw new TypeError("URL shim does not support credentials, IPv6 or IDN authority");
     var hostParts = authority.split("@").pop().split(":");
     this.href = raw;
     this.protocol = match && match[1] ? match[1] : "";
@@ -2691,25 +2587,48 @@ function wrapLoonSurgeScript(source, parsed) {
     this.search = match && match[4] ? match[4] : (raw.indexOf("?") >= 0 ? "?" + raw.split("?")[1].split("#")[0] : "");
     this.hash = match && match[5] ? match[5] : (raw.indexOf("#") >= 0 ? "#" + raw.split("#")[1] : "");
     this.origin = this.protocol && authority ? this.protocol + "//" + authority : "";
-    this.searchParams = new (__NativeURLSearchParams || __URLSearchParamsShim)(this.search);
+    var that = this;
+    var hostName = this.hostname.toLowerCase(), port = this.port, protocol = this.protocol.toLowerCase();
+    function normalizedPort() { return (protocol === "https:" && port === "443") || (protocol === "http:" && port === "80") ? "" : port; }
+    Object.defineProperty(this, "protocol", { enumerable: true, configurable: true, get: function () { return protocol; }, set: function (value) { value = String(value).toLowerCase(); if (!/^https?:$/.test(value)) throw new TypeError("Unsupported URL protocol"); protocol = value; } });
+    Object.defineProperty(this, "hostname", { enumerable: true, configurable: true, get: function () { return hostName; }, set: function (value) { value = String(value).toLowerCase(); if (!/^[a-z0-9.-]+$/.test(value)) throw new TypeError("Unsupported URL hostname"); hostName = value; } });
+    Object.defineProperty(this, "port", { enumerable: true, configurable: true, get: normalizedPort, set: function (value) { value = String(value); if (value && (!/^[0-9]+$/.test(value) || Number(value) > 65535)) throw new TypeError("Invalid URL port"); port = value; } });
+    Object.defineProperty(this, "host", { enumerable: true, configurable: true, get: function () { return hostName + (normalizedPort() ? ":" + normalizedPort() : ""); }, set: function (value) { var next = String(value).match(/^([A-Za-z0-9.-]+)(?::([0-9]+))?$/); if (!next) throw new TypeError("Unsupported URL host"); that.hostname = next[1]; that.port = next[2] || ""; } });
+    Object.defineProperty(this, "origin", { enumerable: true, configurable: true, get: function () { return that.protocol + "//" + that.host; } });
+    var search = this.search;
+    this.searchParams = new __URLSearchParamsShim(search);
+    this.searchParams.__update = function () { var query = that.searchParams.toString(); search = query ? "?" + query : ""; };
+    Object.defineProperty(this, "search", { enumerable: true, configurable: true,
+      get: function () { return search; },
+      set: function (value) { search = String(value || ""); if (search && search.charAt(0) !== "?") search = "?" + search; that.searchParams.__pairs = new __URLSearchParamsShim(search).__pairs; }
+    });
+    Object.defineProperty(this, "href", { enumerable: true, configurable: true,
+      get: function () { return that.protocol + "//" + that.host + (that.pathname || "/") + search + that.hash; },
+      set: function (value) { var next = new __URLShim(value); that.protocol = next.protocol; that.host = next.host; that.hostname = next.hostname; that.port = next.port; that.pathname = next.pathname; that.search = next.search; that.hash = next.hash; }
+    });
   }
   __URLShim.prototype.toString = function () { return this.href; };
-  try {
-    if (typeof globalThis !== "undefined") {
-      if (typeof globalThis.setTimeout !== "function") globalThis.setTimeout = __setTimeout;
-      if (typeof globalThis.clearTimeout !== "function") globalThis.clearTimeout = __clearTimeout;
-      if (typeof globalThis.setInterval !== "function") globalThis.setInterval = __setInterval;
-      if (typeof globalThis.clearInterval !== "function") globalThis.clearInterval = __clearInterval;
-      if (typeof globalThis.URL !== "function") globalThis.URL = __URLShim;
-      if (typeof globalThis.URLSearchParams !== "function") globalThis.URLSearchParams = __URLSearchParamsShim;
-      if (typeof globalThis.TextEncoder !== "function") globalThis.TextEncoder = __TextEncoderShim;
-      if (typeof globalThis.TextDecoder !== "function") globalThis.TextDecoder = __TextDecoderShim;
-      if (typeof globalThis.atob !== "function") globalThis.atob = __atobShim;
-      if (typeof globalThis.btoa !== "function") globalThis.btoa = __btoaShim;
-      if (typeof globalThis.fetch !== "function") globalThis.fetch = __fetch;
-      if (!globalThis.crypto) globalThis.crypto = __cryptoShim;
+  var __installedGlobals = [];
+  function __installGlobal(name, value) {
+    if (typeof globalThis === "undefined" || globalThis[name]) return;
+    try {
+      var descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
+      globalThis[name] = value;
+      __installedGlobals.push([name, descriptor]);
+    } catch (_) {}
+  }
+  function __restoreGlobals() {
+    for (var i = 0; i < __installedGlobals.length; i++) {
+      var entry = __installedGlobals[i];
+      try { if (entry[1]) Object.defineProperty(globalThis, entry[0], entry[1]); else delete globalThis[entry[0]]; } catch (_) {}
     }
-  } catch (_) {}
+  }
+  __installGlobal("setTimeout", __setTimeout); __installGlobal("clearTimeout", __clearTimeout);
+  __installGlobal("setInterval", __setInterval); __installGlobal("clearInterval", __clearInterval);
+  __installGlobal("URL", __URLShim); __installGlobal("URLSearchParams", __URLSearchParamsShim);
+  __installGlobal("TextEncoder", __TextEncoderShim); __installGlobal("TextDecoder", __TextDecoderShim);
+  __installGlobal("atob", __atobShim); __installGlobal("btoa", __btoaShim);
+  __installGlobal("fetch", __fetch); __installGlobal("crypto", __cryptoShim);
   function __headersObject(headers) {
     var out = {};
     if (!headers) return out;
@@ -2738,16 +2657,30 @@ function wrapLoonSurgeScript(source, parsed) {
     __finished = true;
     __resolveDone();
   }
-  var $request = { url: ctx.url || "", method: ctx.method || "GET", headers: __headersObject(ctx.headers), body: __binaryBodyMode ? __bodyBytes : __bodyText, bodyBytes: __bodyBytes };
-  var $response = { status: ctx.status || 200, statusCode: ctx.status || 200, headers: __headersObject(ctx.headers), body: __binaryBodyMode ? __bodyBytes : __bodyText, bodyBytes: __bodyBytes };
+  var __requestBodyState = {}, __responseBodyState = {};
+  function __attachBody(object, state) {
+    var value, assigned = false;
+    Object.defineProperty(object, "body", { enumerable: true, configurable: true,
+      get: function () { return assigned ? value : (__binaryBodyMode ? __bodyBytes : __textBody()); },
+      set: function (next) { value = next; assigned = true; state.assigned = true; }
+    });
+    return object;
+  }
+  var $request = __attachBody({ url: ctx.url || "", method: ctx.method || "GET", headers: __headersObject(ctx.headers), bodyBytes: __bodyBytes }, __requestBodyState);
+  var $response = __attachBody({ status: ctx.status || 200, statusCode: ctx.status || 200, headers: __headersObject(ctx.headers), bodyBytes: __bodyBytes }, __responseBodyState);
   var $environment = { system: "Anywhere", "surge-version": "0", "loon-version": "0" };
+  __installGlobal("$environment", $environment);
+  __installGlobal("$script", { startTime: Date.now() / 1000, name: "Anywhere Converter" });
   var $loon = "Anywhere";
 ${argumentHelper}  var $argument = ${argumentExpression};
+  __installGlobal("$argument", $argument);
+  __installGlobal("$request", $request); __installGlobal("$response", $response); __installGlobal("$done", $done);
   var $persistentStore = {
     read: function (key) { return Anywhere.store.getString(String(key), true) || null; },
     write: function (value, key) { Anywhere.store.set(String(key), Anywhere.codec.utf8.encode(String(value == null ? "" : value)), true); return true; }
   };
   var $prefs = { valueForKey: $persistentStore.read, setValueForKey: function (value, key) { return $persistentStore.write(value, key); } };
+  __installGlobal("$persistentStore", $persistentStore); __installGlobal("$prefs", $prefs);
   var $notification = { post: function () {} };
   var $notify = function () {};
   var $utils = {
@@ -2844,7 +2777,7 @@ ${argumentHelper}  var $argument = ${argumentExpression};
         __finishUnchanged();
         return;
       }
-    } else if (typeof $response !== "undefined" && "${phase}" === "response" && (__binaryBodyMode ? $response.body !== __bodyBytes : $response.body !== __bodyText)) {
+    } else if ("${phase}" === "response" && __responseBodyState.assigned) {
       if (!__setBodyIfWithinCap(__bodyOut($response.body))) {
         __finishUnchanged();
         return;
@@ -2877,16 +2810,67 @@ ${argumentHelper}  var $argument = ${argumentExpression};
     };
   }
   try {
-    var __returnValue = (new Function("$request", "$response", "$done", "$persistentStore", "$prefs", "$httpClient", "$task", "$argument", "$notification", "$notify", "$environment", "$loon", "$utils", "Env", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "URL", "URLSearchParams", "TextEncoder", "TextDecoder", "atob", "btoa", "fetch", "crypto", __source))($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval, __NativeURL || __URLShim, __NativeURLSearchParams || __URLSearchParamsShim, __NativeTextEncoder || __TextEncoderShim, __NativeTextDecoder || __TextDecoderShim, __nativeAtob || __atobShim, __nativeBtoa || __btoaShim, __nativeFetch || __fetch, __nativeCrypto || __cryptoShim);
+    var __returnValue = ${runnerName}($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval, __NativeURL || __URLShim, __NativeURLSearchParams || __URLSearchParamsShim, __NativeTextEncoder || __TextEncoderShim, __NativeTextDecoder || __TextDecoderShim, __nativeAtob || __atobShim, __nativeBtoa || __btoaShim, __nativeFetch || __fetch, __nativeCrypto || __cryptoShim);
     if (__returnValue && typeof __returnValue.then === "function") {
-      Promise.resolve(__returnValue).catch(function (error) { Anywhere.log.error(String(error && error.stack || error)); });
+      await Promise.resolve(__returnValue).catch(function (error) { Anywhere.log.error(String(error && error.stack || error)); __finishUnchanged(); });
     }
   } catch (error) {
     Anywhere.log.error(String(error && error.stack || error));
+    __finishUnchanged();
   }
+  await Promise.resolve();
+  ${/\$done|\bEnv\s*\(/.test(source) ? "" : "if (!__finished && __pendingHttp <= 0 && Object.keys(__timers).length === 0) __finishUnchanged();"}
   var __timeoutPromise = __nativeSetTimeout ? new Promise(function (resolve) { __setTimeout(resolve, ${timeoutMs}); }) : __donePromise;
   await Promise.race([__donePromise, __timeoutPromise]);
   if (!__finished && __pendingHttp <= 0) __finish();
+  __restoreGlobals();
+}`;
+}
+
+// Body-only scripts do not need storage, HTTP, Env or Web-API shims. Keep the
+// original source verbatim and share its static runner exactly as in full mode.
+function wrapBodyScript(source, parsed) {
+  const phase = parsed.phase === 0 ? "request" : "response";
+  const runner = "__converter_runner_" + sourceId(source);
+  return `function ${runner}($request, $response, $done, $argument) {\n${source}\n}
+async function process(ctx) {
+  var finished = false, resolveDone;
+  var donePromise = new Promise(function (resolve) { resolveDone = resolve; });
+  var text, bytes;
+  var responseAssigned = false;
+  function body() {
+    if (${parsed.binaryBodyMode === true}) { if (!bytes) bytes = new Uint8Array(ctx.body || []); return bytes; }
+    if (text === undefined) text = ctx.body ? Anywhere.codec.utf8.decode(ctx.body) : "";
+    return text;
+  }
+  function headers() { var out = {}; (ctx.headers || []).forEach(function (p) { out[String(p[0]).toLowerCase()] = String(p[1]); }); return out; }
+  function attach(object, response) {
+    var assigned = false, value;
+    Object.defineProperty(object, "body", { enumerable: true, configurable: true,
+      get: function () { return assigned ? value : body(); },
+      set: function (next) { assigned = true; value = next; if (response) responseAssigned = true; }
+    });
+    Object.defineProperty(object, "bodyBytes", { enumerable: true, get: function () { if (!bytes) bytes = new Uint8Array(ctx.body || []); return bytes; } });
+    return object;
+  }
+  var $request = attach({url: ctx.url, method: ctx.method || "GET", headers: headers()}, false);
+  var $response = attach({status: ctx.status || 200, statusCode: ctx.status || 200, headers: headers()}, true);
+  function unchanged() { if (!finished) { finished = true; resolveDone(); } }
+  function $done(value) {
+    if (finished) return;
+    if (value && value.response && "${phase}" === "request") { Anywhere.respond(value.response); unchanged(); return; }
+    var hasBody = value && Object.prototype.hasOwnProperty.call(value, "body");
+    if (hasBody || responseAssigned && "${phase}" === "response") {
+      var output = hasBody ? value.body : $response.body;
+      var next = output instanceof ArrayBuffer ? new Uint8Array(output) : ArrayBuffer.isView(output) ? new Uint8Array(output.buffer, output.byteOffset, output.byteLength) : Anywhere.codec.utf8.encode(String(output == null ? "" : output));
+      if ("${phase}" === "response" && ctx.body && next.length > ctx.body.length + 65535) { unchanged(); return; }
+      ctx.body = next;
+    }
+    Anywhere.done(); unchanged();
+  }
+  try { await ${runner}($request, $response, $done, ${JSON.stringify(String(parsed.argument || ""))}); }
+  catch (error) { Anywhere.log.error(String(error && error.stack || error)); unchanged(); }
+  ${/\$done/.test(source) ? "await donePromise;" : "unchanged();"}
 }`;
 }
 
@@ -3381,7 +3365,7 @@ function buildReport({ converted, skipped, files, diagnostics }) {
 
 function scriptMetricsForFile(file) {
   const metrics = { scriptRuleCount: 0, totalScriptBytes: 0, maxPerHitScriptBytes: 0 };
-  if (file.type !== "amrs" || !file.content) return metrics;
+  if (!["amrs", "amod"].includes(file.type) || !file.content) return metrics;
   for (const line of String(file.content).split(/\r?\n/)) {
     if (!/^[01],\s*(?:100|101),/.test(line)) continue;
     const fields = parseCsv(line);
@@ -3707,25 +3691,54 @@ function dedupeRoutingRules(rules) {
 }
 
 function composeProcessScripts(sources) {
+  sources = shareStaticRunners(sources);
   const parts = sources.map((source, index) => {
     if (!/function\s+process\s*\(\s*ctx\s*\)/.test(source)) {
       return `function __anywhere_part_${index}(ctx) {\n${source}\n}`;
     }
-    return source.replace(/function\s+process\s*\(\s*ctx\s*\)/, `function __anywhere_part_${index}(ctx)`);
+    return renameProcess(source, `__anywhere_part_${index}`);
   });
-  const calls = sources.map((_, index) => `  __anywhere_part_${index}(ctx);`).join("\n");
-  return `${parts.join("\n\n")}\n\nfunction process(ctx) {\n${calls}\n}`;
+  const calls = sources.map((_, index) => `  await __anywhere_part_${index}(ctx);`).join("\n");
+  return `${parts.join("\n\n")}\n\nasync function process(ctx) {\n${calls}\n}`;
 }
 
 function composeGatedProcessScripts(items) {
+  const shared = shareStaticRunners(items.map(item => item.source));
+  items = items.map((item, index) => ({ ...item, source: shared[index] }));
   const parts = items.map((item, index) => {
     if (!/function\s+process\s*\(\s*ctx\s*\)/.test(item.source)) {
       return `function __anywhere_part_${index}(ctx) {\n${item.source}\n}`;
     }
-    return item.source.replace(/function\s+process\s*\(\s*ctx\s*\)/, `function __anywhere_part_${index}(ctx)`);
+    return renameProcess(item.source, `__anywhere_part_${index}`);
   });
-  const calls = items.map((item, index) => `  if ((new RegExp(${JSON.stringify(item.pattern)})).test(url)) __anywhere_part_${index}(ctx);`).join("\n");
-  return `${parts.join("\n\n")}\n\nfunction process(ctx) {\n  var url = ctx.url || "";\n${calls}\n}`;
+  const calls = items.map((item, index) => `  if ((new RegExp(${JSON.stringify(item.pattern)})).test(url)) await __anywhere_part_${index}(ctx);`).join("\n");
+  return `${parts.join("\n\n")}\n\nasync function process(ctx) {\n  var url = ctx.url || "";\n${calls}\n}`;
+}
+
+function renameProcess(source, name) {
+  const node = parseScript(source)?.body.find(node => node.type === "FunctionDeclaration" && node.id.name === "process");
+  if (!node) return `function ${name}(ctx) {\n${source}\n}`;
+  return source.slice(0, node.id.start) + name + source.slice(node.id.end);
+}
+
+function sourceId(source) {
+  // Two independent 32-bit hashes; sharing also verifies exact source equality.
+  let a = 2166136261, b = 5381;
+  for (const c of source) { a = Math.imul(a ^ c.charCodeAt(0), 16777619); b = Math.imul(b, 33) ^ c.charCodeAt(0); }
+  return (a >>> 0).toString(16) + "_" + (b >>> 0).toString(16);
+}
+
+function shareStaticRunners(sources) {
+  const seen = new Map();
+  return sources.map(source => {
+    const ast = parseScript(source);
+    const runner = ast?.body.find(node => node.type === "FunctionDeclaration" && node.id.name.startsWith("__converter_runner_"));
+    if (!runner) return source;
+    const text = source.slice(runner.start, runner.end);
+    if (seen.get(runner.id.name) === text) return source.slice(0, runner.start) + source.slice(runner.end);
+    seen.set(runner.id.name, text);
+    return source;
+  });
 }
 
 function unionRegexPattern(patterns) {

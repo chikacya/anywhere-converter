@@ -940,6 +940,12 @@ export function renderHome() {
                     </select>
                   </label>
                 </div>
+            <label>输出格式
+              <select name="outputFormat">
+                <option value="standalone">独立 AMRS / ARRS</option>
+                <option value="amod">Anywhere 模块 AMOD（2.4+）</option>
+              </select>
+            </label>
             <details class="icon-config" id="icon-config">
               <summary>
                 <span class="icon-summary-copy">
@@ -1005,10 +1011,10 @@ export function renderHome() {
               </span>
             </label>
             <label class="switchline">
-              <input type="checkbox" name="aggressive" value="true">
+              <input type="checkbox" checked disabled>
               <span class="switch-copy">
-                <span>增强 JS 原生化</span>
-                <small>尝试提升更多静态 JSON 清理脚本；二进制、动态逻辑仍会保留或标记需验证。</small>
+                <span>安全 JS 原生化（自动）</span>
+                <small>完整脚本能表达为原生规则时自动转换；复杂条件、过滤和二进制保留 JS，不猜测行为。</small>
               </span>
             </label>
             <div class="script-recovery">
@@ -1304,7 +1310,7 @@ $done({ body: JSON.stringify(obj) });\`;
       clearRemoteSourceIfUrlChanged();
     });
 
-    for (const control of form.querySelectorAll('input[name="fetchScripts"], input[name="aggressive"], input[name="preserveParameters"], select[name="sourceKind"], select[name="ruleSetRouting"]')) {
+    for (const control of form.querySelectorAll('input[name="fetchScripts"], input[name="aggressive"], input[name="preserveParameters"], select[name="sourceKind"], select[name="ruleSetRouting"], select[name="outputFormat"]')) {
       control.addEventListener("change", () => scheduleReconvert());
     }
 
@@ -1418,6 +1424,7 @@ $done({ body: JSON.stringify(obj) });\`;
             url: raw.url || "",
             source,
             sourceKind: raw.sourceKind || "auto",
+            outputFormat: raw.outputFormat || "standalone",
             ruleSetRouting: raw.ruleSetRouting || "default",
             mode: raw.aggressive === "true" ? "aggressive" : "compat",
             arguments: argumentOverrides,
@@ -2835,7 +2842,7 @@ export function renderManifest() {
 }
 
 export function renderServiceWorker() {
-  return `const CACHE = "anywhere-converter-shell-v3";
+  return `const CACHE = "anywhere-converter-shell-v4";
 const ASSETS = ["/", "/manifest.webmanifest", "/icons/anywhere-converter-app-icon-v2-180.png", "/icons/anywhere-converter-app-icon-v2-192.png", "/icons/anywhere-converter-app-icon-v2-512.png"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));

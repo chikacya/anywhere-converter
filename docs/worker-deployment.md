@@ -38,6 +38,8 @@ Reads module metadata, rule-set kind, and `[Argument]` definitions without gener
 
 `POST /api/convert`
 
+Optional `outputFormat: "amod"` bundles output for Anywhere 2.4+. Defaults to standalone AMRS/ARRS; excessive module budgets fall back to standalone. Dynamic `/sub/module.amod?url=...&outputFormat=amod` and `anywhere://add-module` links preserve this choice. Split dynamic files add `part=0`, `part=1`, etc.
+
 ```json
 {
   "url": "https://example.com/module.plugin",

@@ -27,8 +27,8 @@ Anywhere-converter 是一个通用的 Loon / Surge 插件、模块、JavaScript 
 - 有边界地下载文本型 `Map Local data-type=file`，无响应头时原生化，有显式状态码/响应头时保留完整响应语义
 - 支持自定义规则集图标：上传 PNG/JPEG/WebP/GIF，或导入公网图片 URL；自动写入 `icon-light`
 - 远程 `script-path` 下载、脚本合并、参数替换、兼容层包装
-- 高置信度 JavaScript 原生化，例如 JSON 删除、替换、数组过滤、固定响应、静态请求改写
-- 可选增强 JS 原生化模式
+- 完整脚本检查后自动原生化；简单根字段赋值/删除和静态请求改写可转原生，复杂过滤和条件保留 JS
+- 可选 `.amod` 模块输出（Anywhere 2.4+），超过保守编码预算回退独立文件
 - Cloudflare Worker 在线 UI、API、动态订阅链接
 - 浏览器端下载单个 `.amrs/.arrs` 或打包 zip，减少后续 Worker 访问
 
@@ -80,13 +80,13 @@ npm run convert -- \
   --out-dir ./out-ruleset
 ```
 
-启用增强 JS 原生化：
+生成 AMOD 模块（默认仍是独立 AMRS/ARRS）：
 
 ```sh
 npm run convert -- \
   --input path/to/module.plugin \
-  --mode aggressive \
-  --out-dir ./out-aggressive
+  --output-format amod \
+  --out-dir ./out-module
 ```
 
 覆盖模块参数：
@@ -183,7 +183,7 @@ npm run deploy
 2. 粘贴 Loon / Surge 模块内容，或填入远程模块 URL。
 3. 如模块包含 `[Argument]`，点击 `读取配置` 后按需调整参数。
 4. 保持 `下载并保留远程脚本` 开启，转换器会下载远程 JS 并尝试原生化。
-5. 需要更激进的静态 JSON 脚本提升时，再开启 `增强 JS 原生化`。
+5. 安全 JS 原生化自动执行；按需选择独立文件或 AMOD 模块输出。
 6. 点击 `转换`。
 7. 使用 `导入 Anywhere` 直接导入，或使用 `下载文件` / `下载全部` 保存到本地。
 
@@ -263,8 +263,8 @@ Self-deployment is better because:
 - Bounded remote text `Map Local data-type=file` fetching, with native output for headerless responses and semantic header/status preservation when declared
 - Support custom rule-set icons from an uploaded PNG/JPEG/WebP/GIF or a public image URL, emitted as `icon-light`
 - Fetch remote `script-path` files, merge scripts, substitute arguments, and wrap compatibility scripts
-- Lift high-confidence JavaScript patterns into native Anywhere rules
-- Optional aggressive JavaScript native-lift mode
+- Lift only complete supported JavaScript programs; complex filters and conditions stay in JavaScript
+- Optional `.amod` output for Anywhere 2.4+, falling back to standalone files above conservative model budgets
 - Cloudflare Worker UI, API, and dynamic subscription links
 - Browser-side file and zip download to reduce repeated Worker hits
 
@@ -316,13 +316,13 @@ npm run convert -- \
   --out-dir ./out-ruleset
 ```
 
-Enable aggressive JavaScript lifting:
+Generate an AMOD module (standalone AMRS/ARRS remains the default):
 
 ```sh
 npm run convert -- \
   --input path/to/module.plugin \
-  --mode aggressive \
-  --out-dir ./out-aggressive
+  --output-format amod \
+  --out-dir ./out-module
 ```
 
 Override module arguments:
@@ -417,7 +417,7 @@ Wrangler will print the Worker URL after deployment.
 2. Paste a Loon / Surge module, or enter a remote module URL.
 3. If the module has `[Argument]`, click `读取配置` and adjust the generated form.
 4. Keep `下载并保留远程脚本` enabled so remote JavaScript can be fetched and converted or preserved.
-5. Enable `增强 JS 原生化` only when you want extra static JSON cleanup lifting.
+5. Safe JavaScript lifting runs automatically. Choose standalone files or AMOD output as needed.
 6. Click `转换`.
 7. Import directly into Anywhere, or download the generated files.
 

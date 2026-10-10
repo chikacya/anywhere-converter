@@ -26,7 +26,7 @@ export default {
       if (request.method === "GET" && url.pathname === "/health") return jsonResponse({
         ok: true,
         version: "0.1.0",
-        capabilities: ["url-input", "text-input", "custom-icon", "icon-url", "argument-form", "script-fetch", "script-recovery", "native-js-lift", "aggressive-js-lift", "ruleset-conversion", "dynamic-subscription", "cache-bust-refresh", "browser-download", "fallback-snapshot", "pwa", "ruleset-studio", "published-arrs", "workspace-key"],
+        capabilities: ["url-input", "text-input", "custom-icon", "icon-url", "argument-form", "script-fetch", "script-recovery", "native-js-lift", "amod-output", "ruleset-conversion", "dynamic-subscription", "cache-bust-refresh", "browser-download", "fallback-snapshot", "pwa", "ruleset-studio", "published-arrs", "workspace-key"],
       });
       if (request.method === "POST" && url.pathname === "/api/workspaces") {
         const limited = await rateLimit(request, env, "workspace-create");
@@ -168,7 +168,7 @@ async function handlePublishedRuleSet(request, env, url) {
     // client or intermediary continue serving an older revision in the
     // background. The Worker Cache API still keeps the normal TTL-based load
     // shedding path; this only removes the 24-hour stale allowance.
-    "cache-control": `public, max-age=${ruleSetCacheTtl(env)}, must-revalidate`,
+    "cache-control": `public, max-age=${Math.min(ruleSetCacheTtl(env), ruleSet._freshForSeconds ?? ruleSetCacheTtl(env))}, must-revalidate`,
     etag,
     "x-converter-source": "rule-studio",
     "x-ruleset-revision": String(ruleSet.revision),
@@ -261,14 +261,15 @@ function memoryPublicRuleSet(state, ruleSetId) {
 async function putPublishedRuleSet(env, workspaceId, ruleSet) {
   const key = publishedRuleSetKey(workspaceId, ruleSet.id);
   const value = JSON.stringify({ id: ruleSet.id, name: ruleSet.name, revision: ruleSet.revision, updatedAt: ruleSet.updatedAt, content: ruleSet.content });
-  memoryPublishedRuleSets.set(key, value);
+  memoryPublishedRuleSets.set(key, { value, expiresAt: Date.now() + ruleSetCacheTtl(env) * 1000 });
   if (env.CONVERTER_KV) await env.CONVERTER_KV.put(key, value);
 }
 
 async function getPublishedRuleSet(env, workspaceId, ruleSetId) {
   const key = publishedRuleSetKey(workspaceId, ruleSetId);
   const memory = memoryPublishedRuleSets.get(key);
-  if (memory) return JSON.parse(memory);
+  if (memory && memory.expiresAt > Date.now()) return { ...JSON.parse(memory.value), _freshForSeconds: Math.max(0, Math.floor((memory.expiresAt - Date.now()) / 1000)) };
+  memoryPublishedRuleSets.delete(key);
   if (!env.CONVERTER_KV) return null;
   const value = await env.CONVERTER_KV.get(key);
   return value ? JSON.parse(value) : null;
@@ -287,16 +288,21 @@ function publishedRuleSetKey(workspaceId, ruleSetId) {
 async function getCachedPublishedRuleSet(request, env) {
   const ttl = ruleSetCacheTtl(env);
   const cached = memoryPublicRuleSetCache.get(request.url);
-  if (cached && cached.expiresAt > Date.now()) return new Response(cached.body, { status: cached.status, headers: cached.headers });
+  if (cached && cached.expiresAt > Date.now()) {
+    const headers = { ...cached.headers, age: String(Math.max(0, Math.floor((Date.now() - cached.createdAt) / 1000))) };
+    return request.headers.get("if-none-match") === headers.etag
+      ? new Response(null, { status: 304, headers })
+      : new Response(cached.body, { status: cached.status, headers });
+  }
   if (ttl <= 0 || typeof caches === "undefined" || !caches.default) return null;
   return caches.default.match(request);
 }
 
 async function putCachedPublishedRuleSet(request, response, env) {
-  const ttl = ruleSetCacheTtl(env);
+  const ttl = Math.min(ruleSetCacheTtl(env), Number(response.headers.get("cache-control")?.match(/max-age=(\d+)/)?.[1] ?? ruleSetCacheTtl(env)));
   if (ttl <= 0 || response.status !== 200) return;
   const body = await response.clone().text();
-  memoryPublicRuleSetCache.set(request.url, { body, status: response.status, headers: Object.fromEntries(response.headers.entries()), expiresAt: Date.now() + ttl * 1000 });
+  memoryPublicRuleSetCache.set(request.url, { body, status: response.status, headers: Object.fromEntries(response.headers.entries()), createdAt: Date.now(), expiresAt: Date.now() + ttl * 1000 });
   if (typeof caches !== "undefined" && caches.default) await caches.default.put(request, response);
 }
 
@@ -389,6 +395,7 @@ async function handleConvert(request, env) {
     name: input.name,
     mode: input.mode,
     sourceKind: input.sourceKind,
+    outputFormat: input.outputFormat,
     ruleSetRouting: input.ruleSetRouting,
     arguments: isPlainObject(input.arguments) ? input.arguments : {},
     preserveParameters: truthyInput(input.preserveParameters),
@@ -418,7 +425,7 @@ async function handleConvert(request, env) {
 
   const ensureSnapshotHash = async () => {
     if (!snapshotHash) {
-      snapshotHash = await sha256(input.source + "\n" + (input.name || "") + "\n" + (input.sourceUrl || "") + "\n" + scriptOverrideHash(scriptTextByURL) + "\n" + (icon.base64 || "") + "\n" + (icon.url || ""));
+      snapshotHash = await sha256(input.source + "\n" + (input.name || "") + "\n" + (input.sourceUrl || "") + "\n" + scriptOverrideHash(scriptTextByURL) + "\n" + (icon.base64 || "") + "\n" + (icon.url || "") + "\n" + JSON.stringify({ outputFormat: input.outputFormat, mode: input.mode, arguments: input.arguments, preserveParameters: input.preserveParameters, ruleSetRouting: input.ruleSetRouting, fetchScripts: input.fetchScripts }));
     }
     return snapshotHash;
   };
@@ -447,7 +454,7 @@ async function handleConvert(request, env) {
   }
 
   const snapshotImportUrl = snapshotFiles.length
-    ? `anywhere://add-rule-set?${snapshotFiles.map((file) => `link=${encodeURIComponent(file.url)}`).join("&")}`
+    ? `anywhere://${result.files[0]?.type === "amod" ? "add-module" : "add-rule-set"}?${snapshotFiles.map((file) => `link=${encodeURIComponent(file.url)}`).join("&")}`
     : "";
   return jsonResponse({
     hash: snapshotHash || undefined,
@@ -507,7 +514,9 @@ async function handleDynamicRuleFetch(request, env) {
   const converted = await convertFromDynamicQuery(request, env);
   if (converted.error) return jsonResponse({ error: converted.error, detail: converted.detail }, converted.status || 400);
 
-  const file = selectDynamicFile(converted.result.files, kind);
+  const part = Number(url.searchParams.get("part") || 0);
+  if (!Number.isSafeInteger(part) || part < 0) return jsonResponse({ error: "bad_dynamic_part" }, 400);
+  const file = selectDynamicFile(converted.result.files, kind, part);
   if (!file) return textResponse(`Error: no ${kind} rules in module`, 404);
 
   const response = textResponse(file.content, 200, {
@@ -532,6 +541,7 @@ async function handleDynamicDeeplink(request, env) {
     arguments: converted.arguments,
     sourceKind: converted.sourceKind,
     ruleSetRouting: converted.ruleSetRouting,
+    outputFormat: converted.outputFormat,
     mode: converted.mode,
     preserveParameters: converted.preserveParameters,
     cacheBust: converted.cacheBust,
@@ -568,6 +578,7 @@ async function convertFromDynamicQuery(request, env) {
   const preserveParameters = truthyInput(url.searchParams.get("preserveParameters") || url.searchParams.get("preserveArguments"));
   const cacheBust = normalizeCacheBust(url.searchParams.get("cacheBust") || url.searchParams.get("_"));
   const iconUrl = String(url.searchParams.get("iconUrl") || "").trim();
+  const outputFormat = url.searchParams.get("outputFormat") === "amod" ? "amod" : "standalone";
   const icon = iconUrl ? await fetchIconURL(iconUrl, env) : { base64: "", source: "none", url: "" };
   if (icon.error) return icon;
   const result = await convertAnyAsync(fetched.source, {
@@ -575,6 +586,7 @@ async function convertFromDynamicQuery(request, env) {
     mode,
     sourceKind,
     ruleSetRouting,
+    outputFormat,
     arguments: args,
     preserveParameters,
     iconLightBase64: icon.base64,
@@ -603,10 +615,12 @@ async function convertFromDynamicQuery(request, env) {
     preserveParameters,
     cacheBust,
     iconUrl: icon.url || iconUrl,
+    outputFormat,
   };
 }
 
 function dynamicKindFromPath(pathname) {
+  if (pathname.endsWith("/module.amod")) return "module";
   if (pathname.endsWith("/mitm.amrs")) return "mitm";
   if (pathname.endsWith("/reject.arrs")) return "reject";
   if (pathname.endsWith("/direct.arrs")) return "direct";
@@ -614,12 +628,13 @@ function dynamicKindFromPath(pathname) {
   return "";
 }
 
-function selectDynamicFile(files, kind) {
-  if (kind === "mitm") return files.find((file) => file.type === "amrs");
+function selectDynamicFile(files, kind, part = 0) {
+  if (kind === "module") return files.filter(file => file.type === "amod")[part];
+  if (kind === "mitm") return files.filter((file) => file.type === "amrs")[part];
   const arrs = files.filter((file) => file.type === "arrs");
-  if (kind === "reject") return arrs.find((file) => routingOfArrs(file.content) === 2);
-  if (kind === "direct") return arrs.find((file) => routingOfArrs(file.content) === 1);
-  if (kind === "rule") return arrs.find((file) => routingOfArrs(file.content) === 0) || arrs[0];
+  if (kind === "reject") return arrs.filter((file) => routingOfArrs(file.content) === 2)[part];
+  if (kind === "direct") return arrs.filter((file) => routingOfArrs(file.content) === 1)[part];
+  if (kind === "rule") { const defaults = arrs.filter(file => routingOfArrs(file.content) === 0); return (defaults.length ? defaults : arrs)[part]; }
   return null;
 }
 
@@ -636,21 +651,28 @@ function dynamicLinksForResult(request, result, input, scriptTextByURL) {
   const requestedKind = String(input.sourceKind || "").toLowerCase();
   const sourceKind = requestedKind && requestedKind !== "auto" ? requestedKind : result.sourceKind;
   const query = dynamicSearchParams(sourceUrl, input.name || "", input.arguments || {}, input.fetchScripts, input.mode, sourceKind, input.ruleSetRouting ?? result.ruleSetRouting, input.cacheBust, input.preserveParameters, input.iconUrl);
+  if (input.outputFormat === "amod") query.set("outputFormat", "amod");
   const files = [];
+  const parts = new Map();
   for (const file of result.files || []) {
     const path = dynamicPathForFile(file);
     if (!path) continue;
     const itemUrl = new URL(base.origin + path);
-    itemUrl.search = query.toString();
+    const part = parts.get(path) || 0;
+    parts.set(path, part + 1);
+    const fileQuery = new URLSearchParams(query);
+    if (result.files.filter(item => dynamicPathForFile(item) === path).length > 1) fileQuery.set("part", String(part));
+    itemUrl.search = fileQuery.toString();
     files.push({ name: file.name, type: file.type, ruleCount: file.ruleCount, url: itemUrl.toString() });
   }
   return {
     files,
-    importUrl: files.length ? `anywhere://add-rule-set?${files.map((file) => `link=${encodeURIComponent(file.url)}`).join("&")}` : "",
+    importUrl: files.length ? `anywhere://${result.files[0]?.type === "amod" ? "add-module" : "add-rule-set"}?${files.map((file) => `link=${encodeURIComponent(file.url)}`).join("&")}` : "",
   };
 }
 
 function dynamicPathForFile(file) {
+  if (file.type === "amod") return "/sub/module.amod";
   if (file.type === "amrs") return "/sub/mitm.amrs";
   if (file.type !== "arrs") return "";
   const routing = routingOfArrs(file.content);
@@ -879,7 +901,7 @@ async function handleRuleFetch(url, env) {
   if (!match) return jsonResponse({ error: "bad_rule_path" }, 400);
   const hash = match[1];
   const filename = decodeURIComponent(match[2]);
-  if (!/\.(amrs|arrs)$/i.test(filename)) return jsonResponse({ error: "bad_rule_extension" }, 400);
+  if (!/\.(amrs|arrs|amod)$/i.test(filename)) return jsonResponse({ error: "bad_rule_extension" }, 400);
   const content = await getFile(env, `${hash}/${filename}`);
   if (content == null) return jsonResponse({ error: "rule_not_found" }, 404);
   return new Response(content, {

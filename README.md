@@ -4,7 +4,7 @@
 
 ## 中文
 
-Anywhere-converter 是一个通用的 Loon / Surge 插件、模块、JavaScript rewrite 和规则集转换器，用来生成 Anywhere 可导入的 `.amrs` / `.arrs`。
+Anywhere-converter 是一个通用的 Loon / Surge 插件、模块、QX Rewrite、JavaScript 和规则集转换器。插件默认生成 Anywhere 模块 `.amod`（Anywhere 2.4+），纯规则集默认生成 `.arrs`；也可选择独立 `.amrs` / `.arrs`。
 
 它会优先把稳定能力转换为 Anywhere 原生规则；远程脚本默认会下载并尝试识别，能静态确认的 JSON/请求改写会被提升为原生规则，无法安全提升的脚本会通过兼容层保留。二进制、protobuf、大型混合脚本和强应用语义的脚本会标记为需要样本或实机验证，而不是盲目承诺等价。
 
@@ -21,16 +21,19 @@ Anywhere-converter 是一个通用的 Loon / Surge 插件、模块、JavaScript 
 
 ### 功能
 
-- Loon / Surge 模块、插件转换为 Anywhere MITM 规则 `.amrs`
+- Loon / Surge 模块、插件转换为 Anywhere 模块 `.amod`，统一包含 MITM、路由规则与参数配置
 - Loon / Surge 规则集转换为 Anywhere 路由规则 `.arrs`，超过 Anywhere 单文件 100,000 条上限时自动拆分
 - `[MITM] hostname`、`[Rule]`、`[Rewrite]`、`[Header Rewrite]`、`[Map Local]`、`[Body Rewrite]`、`[Argument]` 等常见配置转换
 - 有边界地下载文本型 `Map Local data-type=file`，无响应头时原生化，有显式状态码/响应头时保留完整响应语义
 - 支持自定义规则集图标：上传 PNG/JPEG/WebP/GIF，或导入公网图片 URL；自动写入 `icon-light`
 - 远程 `script-path` 下载、脚本合并、参数替换、兼容层包装
 - 完整脚本检查后自动原生化；简单根字段赋值/删除和静态请求改写可转原生，复杂过滤和条件保留 JS
-- 可选 `.amod` 模块输出（Anywhere 2.4+），超过保守编码预算回退独立文件
+- 默认自动选择格式：插件、模块、QX Rewrite / JS 生成 `.amod`，纯规则集保持 `.arrs`；模块超出原生模型编码预算时保留全部独立文件
+- QX 支持 `[rewrite_local]` 或无 section 的 Rewrite、大小写混合的 `[mitm]`、远程 `script-request/response-body/header`、常用 body/jq rewrite；独立 JS 可读取自带的 QX 规则注释，无匹配信息时明确提示补充
 - Cloudflare Worker 在线 UI、API、动态订阅链接
-- 浏览器端下载单个 `.amrs/.arrs` 或打包 zip，减少后续 Worker 访问
+- 浏览器端下载单个 `.amod/.amrs/.arrs` 或打包 zip，减少后续 Worker 访问
+
+模块支持一条订阅统一更新相关规则，打包本身不改变 JS 执行性能。若之前导入过同一插件的独立 AMRS/ARRS，请确认模块后停用重复项；相同条件下独立规则优先。上游增长导致已有模块订阅超限时，服务返回明确错误（HTTP 422），Anywhere 保留旧模块；请重新转换并使用独立文件链接，不会自动迁移订阅。规则集工坊继续提供 ARRS。
 
 ### 本地部署
 
@@ -80,7 +83,7 @@ npm run convert -- \
   --out-dir ./out-ruleset
 ```
 
-生成 AMOD 模块（默认仍是独立 AMRS/ARRS）：
+显式生成 AMOD 模块（插件默认即为模块）；若需要旧版独立输出，将 `amod` 改为 `standalone`：
 
 ```sh
 npm run convert -- \
@@ -180,10 +183,10 @@ npm run deploy
 #### 网页转换
 
 1. 打开自己的 Worker URL。
-2. 粘贴 Loon / Surge 模块内容，或填入远程模块 URL。
+2. 粘贴 Loon / Surge 插件、QX Rewrite 或带 QX 规则注释的 JS，或填入远程 URL。
 3. 如模块包含 `[Argument]`，点击 `读取配置` 后按需调整参数。
 4. 保持 `下载并保留远程脚本` 开启，转换器会下载远程 JS 并尝试原生化。
-5. 安全 JS 原生化自动执行；按需选择独立文件或 AMOD 模块输出。
+5. 安全 JS 原生化自动执行；默认自动选择格式，也可手动选择独立文件或 AMOD 模块。
 6. 点击 `转换`。
 7. 使用 `导入 Anywhere` 直接导入，或使用 `下载文件` / `下载全部` 保存到本地。
 
@@ -240,7 +243,7 @@ node --check bin/cli.mjs
 
 ## English
 
-Anywhere-converter is a generic converter for Loon / Surge plugins, modules, JavaScript rewrites, and rule sets. It generates `.amrs` / `.arrs` files that can be imported into Anywhere.
+Anywhere-converter is a generic converter for Loon / Surge plugins and modules, QX rewrites, JavaScript, and rule sets. Plugins default to `.amod` modules (Anywhere 2.4+), while plain rule sets default to `.arrs`. Standalone `.amrs` / `.arrs` output remains available.
 
 The converter is intentionally conservative. Stable Loon / Surge features are mapped to native Anywhere rules first. Remote JavaScript is fetched by default; high-confidence JSON and request rewrite patterns are lifted to native rules, while the remaining scripts are preserved through a compatibility wrapper. Binary, protobuf, large mixed bundles, and app-specific dynamic behavior are marked as needing samples or real-device validation instead of being guessed.
 
@@ -257,16 +260,20 @@ Self-deployment is better because:
 
 ### Features
 
-- Convert Loon / Surge modules and plugins to Anywhere MITM `.amrs`
+- Convert Loon / Surge modules and plugins to Anywhere `.amod` modules containing MITM, routing rules and parameter definitions
 - Convert Loon / Surge rule sets to Anywhere routing `.arrs`, automatically splitting files above Anywhere's 100,000-rule per-file limit
 - Support common sections such as `[MITM]`, `[Rule]`, `[Rewrite]`, `[Header Rewrite]`, `[Map Local]`, `[Body Rewrite]`, and `[Argument]`
 - Bounded remote text `Map Local data-type=file` fetching, with native output for headerless responses and semantic header/status preservation when declared
 - Support custom rule-set icons from an uploaded PNG/JPEG/WebP/GIF or a public image URL, emitted as `icon-light`
 - Fetch remote `script-path` files, merge scripts, substitute arguments, and wrap compatibility scripts
 - Lift only complete supported JavaScript programs; complex filters and conditions stay in JavaScript
-- Optional `.amod` output for Anywhere 2.4+, falling back to standalone files above conservative model budgets
+- Automatic output: plugins, modules and QX rewrite / JS produce `.amod`; plain rule sets remain `.arrs`. Excessive native model budgets fall back to complete standalone files
+- QX rewrite snippets, case-insensitive MITM sections, remote request/response scripts and common body/jq rewrites; standalone JavaScript uses its own QX rule comments, never an inferred interception scope
+
 - Cloudflare Worker UI, API, and dynamic subscription links
 - Browser-side file and zip download to reduce repeated Worker hits
+
+Modules update related sets through one subscription; packaging does not change JS execution cost. After verifying a module, disable duplicate standalone sets because standalone rules win on identical matches. If upstream growth makes a subscribed module exceed capacity, HTTP 422 preserves the existing module in Anywhere; reconvert and import the standalone alternatives. Rule Studio continues to publish ARRS.
 
 ### Local Deployment
 
@@ -316,7 +323,7 @@ npm run convert -- \
   --out-dir ./out-ruleset
 ```
 
-Generate an AMOD module (standalone AMRS/ARRS remains the default):
+Explicitly generate an AMOD module (already the plugin default); replace `amod` with `standalone` for independent files:
 
 ```sh
 npm run convert -- \
@@ -414,10 +421,10 @@ Wrangler will print the Worker URL after deployment.
 #### Web UI
 
 1. Open your Worker URL.
-2. Paste a Loon / Surge module, or enter a remote module URL.
+2. Paste a Loon / Surge plugin, QX rewrite, or JavaScript with QX rule comments, or enter its remote URL.
 3. If the module has `[Argument]`, click `读取配置` and adjust the generated form.
 4. Keep `下载并保留远程脚本` enabled so remote JavaScript can be fetched and converted or preserved.
-5. Safe JavaScript lifting runs automatically. Choose standalone files or AMOD output as needed.
+5. Safe JavaScript lifting runs automatically. Automatic output is the default; standalone files and explicit AMOD output are also available.
 6. Click `转换`.
 7. Import directly into Anywhere, or download the generated files.
 

@@ -1525,7 +1525,7 @@ $done($request);
   const amrs = result.files.find((file) => file.type === "amrs");
   const lines = amrs.content.split("\n");
   assert(lines.some((line) => line.includes(", 0, ^https://api") && line.includes("https://api.example.com/new")));
-  assert(lines.some((line) => line.includes("0, 3,") && line.includes("x-test, 1")));
+  assert(lines.some((line) => line.includes("0, 1,") && line.includes("x-test, 1")));
   assert(lines.some((line) => line.includes("0, 2,") && line.includes("if-none-match")));
   assert(!amrs.content.includes("new Function"));
   assert(result.diagnostics.some((item) => item.code === "script-request-lift"));
@@ -1551,14 +1551,14 @@ $done($request);
   const amrs = result.files.find((file) => file.type === "amrs");
   const lines = amrs.content.split("\n");
   assert(lines.some((line) => line.includes(", 0, ^https://old") && line.includes("https://new.example.com/api/$1")));
-  assert(lines.some((line) => line.includes("0, 3,") && line.includes("x-test, 1")));
-  assert(lines.some((line) => line.includes("0, 3,") && line.includes("cache-control, no-cache")));
+  assert(lines.some((line) => line.includes("0, 1,") && line.includes("x-test, 1")));
+  assert(lines.some((line) => line.includes("0, 1,") && line.includes("cache-control, no-cache")));
   assert(!amrs.content.includes("new Function"));
   assert(result.diagnostics.some((item) => item.code === "script-request-lift"));
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 
-test("lifts static request done object mutations", async () => {
+test("blocks whole request header object replacement that cannot remove unknown incoming fields", async () => {
   const source = `
 #!name = Request Done Object Lift Mini
 [Script]
@@ -1576,14 +1576,9 @@ $done({
 });
 `,
   });
-  const amrs = result.files.find((file) => file.type === "amrs");
-  const lines = amrs.content.split("\n");
-  assert(lines.some((line) => line.includes(", 0, ^https://api") && line.includes("https://api.example.com/new")));
-  assert(lines.some((line) => line.includes("0, 3,") && line.includes("x-test, 1")));
-  assert(lines.some((line) => line.includes("0, 3,") && line.includes("cache-control, no-cache")));
-  assert(!amrs.content.includes("new Function"));
-  assert(result.diagnostics.some((item) => item.code === "script-request-lift"));
-  assert.deepEqual(validateAnywhereOutput(amrs), []);
+  assert.equal(result.files.length, 0);
+  assert(!result.diagnostics.some(item => item.code === "script-request-lift"));
+  assert(result.diagnostics.some(item => item.code === "request-mutation-script"));
 });
 
 test("lifts fixed request response scripts to lightweight respond script", async () => {

@@ -12,6 +12,8 @@ import Foundation
                 switch fields[0] {
                 case "delete": return MITMJSONPatch.compile(.delete(path: fields[1]))
                 case "add" where fields.count == 3: return MITMJSONPatch.compile(.add(path: fields[1], value: fields[2]))
+                case "remove-where-field-in" where fields.count == 4:
+                    return MITMJSONPatch.compile(.removeWhereFieldIn(path: fields[1], field: fields[2], values: fields[3]))
                 default: return nil
                 }
             }

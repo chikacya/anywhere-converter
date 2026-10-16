@@ -94,7 +94,7 @@ test('request lifting rejects unknown operations and preserves header statement 
   assert(!rejected.diagnostics.some(d=>d.code==='script-request-lift'));
   assert(rejected.diagnostics.some(d=>d.code==='request-mutation-script'));
   const valid=convert('delete $request.headers["x"];$request.headers["x"]="one";$done($request);');
-  assert.deepEqual(valid.files[0].content.split('\n').filter(x=>/^0, [23],/.test(x)).map(x=>internals.parseCsv(x)[1]),['2','3']);
+  assert.deepEqual(valid.files[0].content.split('\n').filter(x=>/^0, [12],/.test(x)).map(x=>internals.parseCsv(x)[1]),['2','2','1']);
 });
 
 test('query redirect retains exact upstream match and response headers',async()=>{
@@ -119,12 +119,14 @@ test("shared static runners keep argument isolation and await overlapping HTTP s
 });
 
 const smallModule = '#!name=Bundle\n[Rule]\nDOMAIN-SUFFIX,ads.example.com,REJECT\n[Rewrite]\n^https://api.example.com/ad reject-dict\n[MITM]\nhostname=api.example.com';
-test("optional AMOD bundles routing and MITM; standalone remains default", () => {
-  const r = convertAny(smallModule, { outputFormat: 'amod' });
+test("plugins default to AMOD; standalone remains an explicit option", () => {
+  const r = convertAny(smallModule);
   assert.equal(r.files.length, 1); assert.equal(r.files[0].type, 'amod');
   assert.match(r.files[0].content, /\[Routing\]/); assert.match(r.files[0].content, /\[MITM\]/);
   assert.deepEqual(validateAnywhereOutput(r.files[0]), []);
-  assert.equal(convertAny(smallModule).files.length, 2);
+  assert.equal(convertAny(smallModule, { outputFormat: 'standalone' }).files.length, 2);
+  assert.equal(convertAny('DOMAIN-SUFFIX,example.com').files[0].type, 'arrs');
+  assert.equal(convertAny('DOMAIN-SUFFIX,example.com', { outputFormat: 'amod' }).files[0].type, 'amod');
 });
 
 test("AMOD keeps parameters and stable child names", () => {

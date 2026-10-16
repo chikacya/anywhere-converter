@@ -35,4 +35,6 @@ URL shim 不是完整 WHATWG：credentials、IPv6、IDN authority 不支持时�
 
 ## 验证边界
 
+2026-10-16 补充：支持 [QX Rewrite 与带规则注释的 JS](qx-compatibility.md)。响应阶段原始请求头/正文不可用，不再用响应数据替代；请求头赋值使用 delete + add 保证缺失字段也能加入；整个头对象替换需人工处理。原生操作按顺序保留，不能跨中间操作去重。
+
 隔离 VM 不注入 URL/timer，并对照上游输出。Swift 对照直接编译当前 APP 的 MITMJSONPatch。真实网易云快照以 Node AES-ECB 解密输出验证参数控制；不宣称等同 iOS 实机。

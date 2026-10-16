@@ -350,7 +350,7 @@ async function handleInspect(request, env) {
   }
 
   const sourceKind = normalizeInputSourceKind(input.sourceKind, input.source);
-  const parsed = sourceKind === "ruleset" ? parseRuleSet(input.source) : parseModule(input.source);
+  const parsed = sourceKind === "ruleset" ? parseRuleSet(input.source) : parseModule(input.source, { sourceUrl: input.sourceUrl || input.url });
   const argumentOverrides = isPlainObject(input.arguments) ? input.arguments : {};
   return jsonResponse({
     sourceKind,
@@ -392,6 +392,7 @@ async function handleConvert(request, env) {
   if (icon.error) return jsonResponse({ error: icon.error, detail: icon.detail }, icon.status || 400);
   const scriptTextByURL = normalizeScriptTextByURL(input.scriptTextByURL, env);
   const result = await convertAnyAsync(input.source, {
+    sourceUrl: input.sourceUrl || input.url,
     name: input.name,
     mode: input.mode,
     sourceKind: input.sourceKind,
@@ -490,6 +491,7 @@ function summarizeResult(result, files) {
     skipped: result.report.skipped,
     fileCount: files.length,
     ruleCount: files.reduce((sum, file) => sum + file.ruleCount, 0),
+    hostnameCount: result.hostnames?.length || 0,
     validationErrors: files.reduce((sum, file) => sum + file.validation.filter((item) => item.level === "error").length, 0),
     sampleRequired: result.report.status === "sample-required",
     sampleReasons: uniqueDiagnosticCodes(result.diagnostics.filter((item) => isSampleRequiredDiagnostic(item))),
@@ -517,6 +519,19 @@ async function handleDynamicRuleFetch(request, env) {
   const part = Number(url.searchParams.get("part") || 0);
   if (!Number.isSafeInteger(part) || part < 0) return jsonResponse({ error: "bad_dynamic_part" }, 400);
   const file = selectDynamicFile(converted.result.files, kind, part);
+  if (!file && kind === "module" && converted.result.diagnostics.some(item => item.code === "amod-budget-fallback")) {
+    const fallback = dynamicLinksForResult(request, converted.result, {
+      sourceUrl: converted.sourceUrl, name: converted.name, fetchScripts: converted.fetchScripts,
+      arguments: converted.arguments, sourceKind: converted.sourceKind, ruleSetRouting: converted.ruleSetRouting,
+      mode: converted.mode, preserveParameters: converted.preserveParameters, iconUrl: converted.iconUrl,
+      cacheBust: converted.cacheBust,
+    }, {});
+    return jsonResponse({ error: "module_limit_exceeded",
+      detail: "上游内容已超过 Anywhere 模块容量。本次未返回截断或空模块；请在转换器中重新转换并导入独立文件。Anywhere 会保留原有模块。",
+      diagnostics: converted.result.diagnostics.filter(item => item.code === "amod-budget-fallback"),
+      standaloneFiles: fallback.files, importUrl: fallback.importUrl,
+    }, 422, { "cache-control": "no-store" });
+  }
   if (!file) return textResponse(`Error: no ${kind} rules in module`, 404);
 
   const response = textResponse(file.content, 200, {
@@ -578,10 +593,15 @@ async function convertFromDynamicQuery(request, env) {
   const preserveParameters = truthyInput(url.searchParams.get("preserveParameters") || url.searchParams.get("preserveArguments"));
   const cacheBust = normalizeCacheBust(url.searchParams.get("cacheBust") || url.searchParams.get("_"));
   const iconUrl = String(url.searchParams.get("iconUrl") || "").trim();
-  const outputFormat = url.searchParams.get("outputFormat") === "amod" ? "amod" : "standalone";
+  // The concrete subscription path fixes its format. Keep all existing ARRS /
+  // AMRS URLs stable, including older fallback URLs carrying outputFormat=amod.
+  const kind = dynamicKindFromPath(url.pathname);
+  const outputFormat = kind === "module" ? "amod" : kind ? "standalone"
+    : url.searchParams.get("outputFormat") === "amod" ? "amod" : "standalone";
   const icon = iconUrl ? await fetchIconURL(iconUrl, env) : { base64: "", source: "none", url: "" };
   if (icon.error) return icon;
   const result = await convertAnyAsync(fetched.source, {
+    sourceUrl: fetched.url,
     name,
     mode,
     sourceKind,
@@ -651,7 +671,7 @@ function dynamicLinksForResult(request, result, input, scriptTextByURL) {
   const requestedKind = String(input.sourceKind || "").toLowerCase();
   const sourceKind = requestedKind && requestedKind !== "auto" ? requestedKind : result.sourceKind;
   const query = dynamicSearchParams(sourceUrl, input.name || "", input.arguments || {}, input.fetchScripts, input.mode, sourceKind, input.ruleSetRouting ?? result.ruleSetRouting, input.cacheBust, input.preserveParameters, input.iconUrl);
-  if (input.outputFormat === "amod") query.set("outputFormat", "amod");
+  query.set("outputFormat", result.files[0]?.type === "amod" ? "amod" : "standalone");
   const files = [];
   const parts = new Map();
   for (const file of result.files || []) {

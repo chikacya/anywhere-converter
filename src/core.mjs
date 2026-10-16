@@ -1,5 +1,6 @@
 import { liftResponseScript, liftRequestStatic, parseScript } from "./js-lift.mjs";
 import { packageAmod, splitAmod, moduleBudget } from "./amod.mjs";
+import { normalizeSection, parseQXRewrite, scriptCommentConfig } from "./qx.mjs";
 
 const ROUTING = {
   default: 0,
@@ -203,6 +204,10 @@ export function convertModule(source, options = {}) {
       break;
     }
     default:
+      if (/^task(?:_|$)|^rewrite_remote$/i.test(item.section)) {
+        skipped += 1;
+        addDiagnostic("warning", "qx-section-unsupported", "不转换远程 rewrite 引用或定时任务，请直接提供 rewrite 内容；不会执行任务脚本。", item.line, item.raw);
+      }
       break;
     }
   }
@@ -211,13 +216,15 @@ export function convertModule(source, options = {}) {
   let hostnames = normalizeHostnames([...parsed.hostnames, ...inferredHosts], diagnostics);
   hostnames = applyVerifiedRecipe(name, hostnames, mitmRules);
   mitmRules = generalizeGroupedHostPatterns(mitmRules, hostnames, diagnostics);
-  mitmRules = dedupeMitmRules(mitmRules);
+  // Ordered mutations are not a set: repeated delete/add operations may be
+  // essential after an intervening mutation. Generated preprocessing is merged separately.
   mitmRules = mergeSameGateScripts(mitmRules, diagnostics);
   mitmRules = mergeIdenticalScriptSourcesByPhase(mitmRules, diagnostics);
   mitmRules = mergeScriptDispatchersByPhase(mitmRules, diagnostics);
   mitmRules = mergeGeneratedHeaderPreprocessRules(mitmRules, diagnostics);
   const parameters = parameterState.parameters;
   const files = [];
+  if (mitmRules.length && !hostnames.length) diagnostics.push({ level: "warning", code: "mitm-hostname-missing", message: "存在 MITM 规则但没有有效 hostname，URL 也无法安全推导；这些规则不会自动接管任何主机，请补充 hostname。", line: 0, source: "" });
 
   if (mitmRules.length) {
     files.push({
@@ -269,7 +276,7 @@ export async function convertModuleAsync(source, options = {}) {
       const resolvedItem = resolveItemArguments(originalItem, argumentValues);
       if (!resolvedItem.enabled) continue;
       const item = resolvedItem.item;
-      const script = parseScriptLine(item.text);
+      const script = item.script || parseScriptLine(item.text);
       if (!script?.path || script.inlineScript || attemptedScriptURLs.has(script.path)) continue;
       attemptedScriptURLs.add(script.path);
       if (scriptFetchAttempts >= scriptFetchLimit) {
@@ -394,7 +401,8 @@ export async function convertModuleAsync(source, options = {}) {
 
 export function detectSourceKind(source) {
   const text = String(source || "");
-  if (/\[(?:Rewrite|URL Rewrite|MITM|Script|Map Local|Body Rewrite|Header Rewrite|Arguments?)\]/i.test(text)) return "module";
+  if (/\[(?:Rewrite|rewrite_local|filter_local|URL Rewrite|MITM|Script|Map Local|Body Rewrite|Header Rewrite|Arguments?)\]/i.test(text)) return "module";
+  if (/^\s*(?:hostname\s*=|\S+\s+url\s+\S+)/im.test(text)) return "module";
   if (/^\s*\[Rule\]\s*$/im.test(text)) return "module";
 
   let ruleLike = 0;
@@ -484,7 +492,7 @@ export function convertRuleSet(source, options = {}) {
 
   const name = options.name || parsed.metadata.name || "Converted Rule Set";
   const hostnames = normalizeHostnames([...inferredHosts], diagnostics);
-  mitmRules = dedupeMitmRules(mitmRules);
+  if (mitmRules.length && !hostnames.length) diagnostics.push({ level: "warning", code: "mitm-hostname-missing", message: "存在 MITM 规则但没有有效 hostname，URL 也无法安全推导；请补充 hostname。", line: 0, source: "" });
   const files = [];
   if (mitmRules.length) {
     files.push({
@@ -863,7 +871,9 @@ function argumentEnabled(value) {
   return /^(?:true|1|yes|on)$/i.test(String(value || "").trim());
 }
 
-export function parseModule(source) {
+export function parseModule(source, options = {}) {
+  const embeddedScript = scriptCommentConfig(String(source), options);
+  if (embeddedScript) return embeddedScript;
   const metadata = {};
   const diagnostics = [];
   const hostnames = [];
@@ -883,22 +893,34 @@ export function parseModule(source) {
       if (split) metadata[split[0].trim().toLowerCase()] = split[1].trim();
       return;
     }
-    if (raw.startsWith("#") || raw.startsWith("//")) return;
+    if (/^\/\/\s*@ScriptName\s+/.test(raw)) metadata.name ||= raw.replace(/^\/\/\s*@ScriptName\s+/, "").trim();
+    if (raw.startsWith("#") || raw.startsWith("//") || raw.startsWith(";")) return;
 
     const sectionMatch = raw.match(/^\[([^\]]+)\]$/);
     if (sectionMatch) {
-      section = sectionMatch[1].trim();
+      section = normalizeSection(sectionMatch[1]);
       return;
     }
 
     const line = stripInlineComment(raw).trim();
     if (!line) return;
 
-    if (section === "MITM") {
+    if (section === "MITM" || !section && /^hostname\s*=/i.test(line)) {
       const split = splitFirst(line, "=");
       if (split && split[0].trim().toLowerCase() === "hostname") {
         hostnames.push(...split[1].split(",").map((item) => item.trim()).filter(Boolean));
       }
+      return;
+    }
+
+    const qx = (section === "Rewrite" || section === "URL Rewrite" || !section) && parseQXRewrite(line);
+    if (qx) {
+      if (qx.error) diagnostics.push({ level: "warning", code: qx.error, message: qx.message, line: lineNumber, source: rawLine });
+      else items.push({ ...qx, text: qx.text || line, raw: rawLine, line: lineNumber });
+      return;
+    }
+    if (!section && /^(?:host|domain|ip(?:6)?-cidr)(?:-suffix|-keyword)?\s*,/i.test(line)) {
+      items.push({ section: "Rule", text: line, raw: rawLine, line: lineNumber });
       return;
     }
 
@@ -1245,6 +1267,13 @@ function normalizeLogicalAndUrlPattern(pattern) {
 }
 
 function convertRewriteLine(item) {
+  if (item.bodyReplace) return { phase: item.bodyReplace.phase, op: 4, pattern: urlGate(item.pattern), fields: [item.bodyReplace.search, item.bodyReplace.replacement] };
+  if (item.dialect === "quantumult-x") {
+    if (item.action === "reject") return { kind: "skip", code: "qx-reject-not-equivalent", message: "QX reject 的连接/响应语义不能用 Anywhere 200 空响应冒充，请选择明确的 reject-200 等动作或人工处理。" };
+    if (["reject-dict", "reject-array"].includes(item.action)) return mapLocalRespondScriptRule(item.pattern, { status: 200, dataType: "json", data: item.action === "reject-dict" ? "{}" : "[]" });
+    if (["301", "303", "307", "308"].includes(item.action)) return /^https?:\/\//i.test(item.value) ? requestCaptureRedirectScriptRule(item.pattern, item.value, Number(item.action)) : null;
+    if (["reject-200", "reject-img"].includes(item.action)) return rejectRule(item.pattern, item.action === "reject-img" ? { kind: "gif" } : { kind: "text", value: "" });
+  }
   const rawRewrite = parseRewriteCommand(item.text);
   if (rawRewrite?.action === "response-body-replace-regex") {
     return bodyReplaceRule(1, rawRewrite.pattern, splitBodyReplaceParts(rawRewrite.rest));
@@ -1494,7 +1523,7 @@ function convertHeaderRewriteLine(item) {
 }
 
 function convertScriptLine(item, options) {
-  const parsed = parseScriptLine(item.text);
+  const parsed = item.script || parseScriptLine(item.text);
   if (!parsed) return null;
   if (shouldPreserveParameters(options) && item.originalText) {
     const originalParsed = parseScriptLine(item.originalText);
@@ -1513,7 +1542,7 @@ function convertScriptLine(item, options) {
   }
   if (!parseScript(source)) return { code: "script-syntax-invalid", message: "脚本无法解析，未生成会导致整个 dispatcher 编译失败的代码。" };
   if (options.jsLift !== false) {
-    const requestLift = liftRequestStatic(source, parsed);
+    const requestLift = liftRequestStatic(source, parsed, FRAMING_HEADERS);
     if (requestLift.length) {
       diagnostics.push({ level: "info", code: "script-request-lift", message: `已将 ${requestLift.length} 个静态 request mutation 提升为 Anywhere 原生请求规则。` });
       return { rule: requestLift.map((rule) => ({ ...rule, pattern: urlGate(parsed.pattern) })), diagnostics };
@@ -1644,15 +1673,31 @@ function scanScriptRisk(source, parsed, rawLine) {
     diagnostics.push({ level: "warning", code: "script-node-require-branch", message: "脚本包含 require 调用；常见 Env 模板的 Node.js 分支可保留，但需实机验证未执行该分支。" });
   }
   const codeWithoutStrings = stripJsStrings(stripJsComments(source));
+  if (parsed.phase === 1 && /\$request\s*(?:\.\s*(?:headers|bodyBytes|body)\b|\[\s*["'](?:headers|bodyBytes|body)["']\s*\])/.test(source)) diagnostics.push({ level: "warning", code: "script-request-context-sample-required", message: "Anywhere 响应阶段只提供响应头与响应正文，不提供原始请求头/正文。读取这些 $request 字段时会报错透传，不能拿响应数据冒充；需人工适配。" });
+  if (parsed.dialect === "quantumult-x" && parsed.phase === 1) {
+    let unsupportedHead = false;
+    function inspect(node) {
+      if (!node || typeof node !== "object") return;
+      if (node.type === "CallExpression" && node.callee?.name === "$done" && node.arguments[0]?.type === "ObjectExpression") unsupportedHead ||= node.arguments[0].properties.some(p => p.type === "Property" && ["headers", "status", "statusCode"].includes(p.key.name ?? p.key.value));
+      if (/\$response\.(?:headers|status|statusCode)/.test(codeWithoutStrings) && (node.type === "AssignmentExpression" || node.type === "UpdateExpression" || node.type === "UnaryExpression" && node.operator === "delete")) {
+        const target = node.left || node.argument;
+        const left = source.slice(target.start, target.end);
+        unsupportedHead ||= /^\$response\.(?:headers|status|statusCode)(?:\b|\[)/.test(left);
+      }
+      for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(inspect); else if (value && typeof value === "object") inspect(value);
+    }
+    inspect(parseScript(source));
+    if (unsupportedHead) diagnostics.push({ level: "error", code: "qx-response-head-unsupported", message: "QX 响应脚本修改 headers/status，但 Anywhere ctx head 为只读；不能只保留 body 后宣称转换完整，请人工转换为原生头规则。" });
+  }
   if (/\b(?:URL|URLSearchParams)\b/.test(codeWithoutStrings)) diagnostics.push({ level: "warning", code: "script-url-api-sample-required", message: "URL/searchParams 使用常用 HTTP(S) 兼容子集，不是完整 WHATWG URL；复杂地址和不支持的 API 需样本验证。" });
-  if (parsed.phase === 0 && /\$request\.(?:url|headers|method)\s*=|\$request\.headers\s*\[|\$done\s*\(\s*\$request\s*\)/.test(codeWithoutStrings)) diagnostics.push({ level: "error", code: "request-mutation-script", message: "完整请求脚本不能安全提升；Anywhere 的请求头、URL 和 method 为只读，请手工转换。" });
+  if (parsed.phase === 0 && !parsed.qxEcho && /\$request\.(?:url|headers|method)\s*=|\$request\.headers\s*\[|\$done\s*\(\s*\$request\s*\)/.test(codeWithoutStrings)) diagnostics.push({ level: "error", code: "request-mutation-script", message: "完整请求脚本不能安全提升；Anywhere 的请求头、URL 和 method 为只读，请手工转换。" });
   if (/\b(?:setTimeout|setInterval)\s*\(/.test(codeWithoutStrings)) {
     diagnostics.push({ level: "warning", code: "script-timer-sample-required", message: "Anywhere 没有原生 timer；只支持零延时微任务，真实延时与 setInterval 会明确报错并透传，需人工适配。" });
   }
   if (/\beval\s*\(|\bnew\s+Function\s*\(|\bFunction\s*\(/.test(codeWithoutStrings)) {
     diagnostics.push({ level: "warning", code: "script-dynamic-sample-required", message: "脚本运行时可能执行 eval/new Function 动态代码，已保留但需要样本和实机验证。" });
   }
-  if (parsed.phase === 0 && /\$done\s*\(\s*\{(?!\s*response\s*:)[\s\S]{0,300}?(?:\burl\b\s*(?=[,}])|(?:url|headers|method)\s*:)/.test(source)) {
+  if (parsed.phase === 0 && !parsed.qxEcho && /\$done\s*\(\s*\{(?!\s*response\s*:)[\s\S]{0,300}?(?:\burl\b\s*(?=[,}])|(?:url|headers|method)\s*:)/.test(source)) {
     diagnostics.push({ level: "error", code: "request-mutation-script", message: "request 脚本尝试修改 url/headers/method，Anywhere 脚本语义不能直接表达。" });
   }
   if (/\$httpClient\b|\$task\s*\.\s*fetch\b|\bfetch\s*\(|\bXMLHttpRequest\b|\.request\s*\(/.test(source)) {
@@ -2405,8 +2450,9 @@ function escapeRegExp(value) {
 
 function wrapLoonSurgeScript(source, parsed) {
   const stripped = stripJsStrings(stripJsComments(source));
-  if (!parsed.runtimeArgument && !/\b(?:Env|URL|URLSearchParams|TextEncoder|TextDecoder|atob|btoa|crypto|fetch|setTimeout|setInterval|clearTimeout|clearInterval|require|eval|Function|globalThis)\b|\$(?!(?:request|response|done|argument)\b)[A-Za-z_]/.test(stripped)) return wrapBodyScript(source, parsed);
+  if (!parsed.qxEcho && !parsed.runtimeArgument && !/\b(?:Env|URL|URLSearchParams|TextEncoder|TextDecoder|atob|btoa|crypto|fetch|setTimeout|setInterval|clearTimeout|clearInterval|require|eval|Function|globalThis)\b|\$(?!(?:request|response|done|argument)\b)[A-Za-z_]/.test(stripped)) return wrapBodyScript(source, parsed);
   const phase = parsed.phase === 0 ? "request" : "response";
+  const isQX = parsed.dialect === "quantumult-x";
   const argument = String(parsed.argument || "");
   const runtimeArgument = parsed.runtimeArgument || null;
   const argumentHelper = runtimeArgument ? `  function __argumentTemplate(template, fallback) {
@@ -2427,7 +2473,7 @@ function wrapLoonSurgeScript(source, parsed) {
     : JSON.stringify(argument);
   const timeoutMs = parsed.timeoutMs || 4500;
   const binaryBodyMode = parsed.binaryBodyMode === true;
-  const runnerName = "__converter_runner_" + sourceId(source);
+  const runnerName = "__converter_runner_full_" + sourceId(source);
   const runnerArgs = "$request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, setTimeout, clearTimeout, setInterval, clearInterval, URL, URLSearchParams, TextEncoder, TextDecoder, atob, btoa, fetch, crypto";
   return `function ${runnerName}(${runnerArgs}) {\n${source}\n}\nasync function process(ctx) {
   var __binaryBodyMode = ${binaryBodyMode ? "true" : "false"};
@@ -2666,8 +2712,9 @@ function wrapLoonSurgeScript(source, parsed) {
     });
     return object;
   }
-  var $request = __attachBody({ url: ctx.url || "", method: ctx.method || "GET", headers: __headersObject(ctx.headers), bodyBytes: __bodyBytes }, __requestBodyState);
-  var $response = __attachBody({ status: ctx.status || 200, statusCode: ctx.status || 200, headers: __headersObject(ctx.headers), bodyBytes: __bodyBytes }, __responseBodyState);
+  var $request = __attachBody({ url: ctx.url || "", method: ctx.method || "GET", headers: __headersObject(ctx.headers), bodyBytes: ${isQX ? "__arrayBufferFromBytes(__bodyBytes)" : "__bodyBytes"} }, __requestBodyState);
+  ${phase === "response" ? `for (var unavailable of ["headers", "body", "bodyBytes"]) Object.defineProperty($request, unavailable, { configurable: true, enumerable: true, get: function () { throw new Error("Original request head/body is unavailable in Anywhere response context"); } });` : ""}
+  var $response = __attachBody({ status: ctx.status || 200, statusCode: ctx.status || 200, headers: __headersObject(ctx.headers), bodyBytes: ${isQX ? "__arrayBufferFromBytes(__bodyBytes)" : "__bodyBytes"} }, __responseBodyState);
   var $environment = { system: "Anywhere", "surge-version": "0", "loon-version": "0" };
   __installGlobal("$environment", $environment);
   __installGlobal("$script", { startTime: Date.now() / 1000, name: "Anywhere Converter" });
@@ -2679,7 +2726,7 @@ ${argumentHelper}  var $argument = ${argumentExpression};
     read: function (key) { return Anywhere.store.getString(String(key), true) || null; },
     write: function (value, key) { Anywhere.store.set(String(key), Anywhere.codec.utf8.encode(String(value == null ? "" : value)), true); return true; }
   };
-  var $prefs = { valueForKey: $persistentStore.read, setValueForKey: function (value, key) { return $persistentStore.write(value, key); } };
+  var $prefs = { valueForKey: $persistentStore.read, setValueForKey: function (value, key) { return $persistentStore.write(value, key); }, removeValueForKey: function (key) { Anywhere.store.delete(String(key), true); return true; } };
   __installGlobal("$persistentStore", $persistentStore); __installGlobal("$prefs", $prefs);
   var $notification = { post: function () {} };
   var $notify = function () {};
@@ -2695,9 +2742,10 @@ ${argumentHelper}  var $argument = ${argumentExpression};
   };
   var $task = {
     fetch: function (request) {
-      return __httpPromise(request && request.method || "GET", request, request && request.body);
+      return __httpPromise(request && request.method || "GET", request, request && (request.body != null ? request.body : request.bodyBytes));
     }
   };
+  ${isQX ? '__installGlobal("$task", $task);' : ""}
   function __http(method, request, body, callback) {
     var url = typeof request === "string" ? request : request.url;
     var headers = typeof request === "string" ? {} : (request.headers || {});
@@ -2711,14 +2759,14 @@ ${argumentHelper}  var $argument = ${argumentExpression};
     var headers = typeof request === "string" ? {} : (request.headers || {});
     __pendingHttp += 1;
     return Promise.resolve(Anywhere.http.request({ method: method, url: url, headers: headers, body: body })).then(function (res) {
-      var bodyText = res.body ? Anywhere.codec.utf8.decode(res.body) : "";
-      return {
+      var response = {
         statusCode: res.status || 200,
         status: res.status || 200,
         headers: __headersObject(res.headers),
-        body: bodyText,
-        bodyBytes: res.body || new Uint8Array()
+        bodyBytes: ${isQX ? "__arrayBufferFromBytes(res.body || new Uint8Array())" : "res.body || new Uint8Array()"}
       };
+      Object.defineProperty(response, "body", { enumerable: true, get: function () { return res.body ? Anywhere.codec.utf8.decode(res.body) : ""; } });
+      return response;
     }).finally(function () { __pendingHttp -= 1; });
   }
   function __arrayBufferFromBytes(value) {
@@ -2761,6 +2809,13 @@ ${argumentHelper}  var $argument = ${argumentExpression};
   }
   function $done(value) {
     if (__finished) return;
+    ${parsed.qxEcho ? `if (value && Object.keys(value).length) {
+      var status = value.status || value.statusCode || 200;
+      if (typeof status === "string") status = Number(status.match(/^HTTP\\/[0-9.]+\\s+(\\d{3})/)?.[1] || status);
+      if (!Number.isInteger(status) || status < 100 || status > 599) throw new TypeError("Invalid QX echo status");
+      Anywhere.respond({status: status, headers: value.headers || [], body: value.body != null ? value.body : value.bodyBytes || ""});
+      __finishUnchanged(); return;
+    }` : ""}
     if (value && value.response && "${phase}" === "request") {
       var response = value.response;
       Anywhere.respond({
@@ -2772,7 +2827,9 @@ ${argumentHelper}  var $argument = ${argumentExpression};
       __resolveDone();
       return;
     }
-    if (value && Object.prototype.hasOwnProperty.call(value, "body")) {
+    if (value && value.bodyBytes != null && (!Object.prototype.hasOwnProperty.call(value, "body") || value.body == null)) {
+      if (!__setBodyIfWithinCap(__bodyOut(value.bodyBytes))) { __finishUnchanged(); return; }
+    } else if (value && Object.prototype.hasOwnProperty.call(value, "body")) {
       if (!__setBodyIfWithinCap(__bodyOut(value.body))) {
         __finishUnchanged();
         return;
@@ -2788,9 +2845,9 @@ ${argumentHelper}  var $argument = ${argumentExpression};
   function Env(name) {
     return {
       name: name || "Anywhere",
-      isSurge: function () { return true; },
+      isSurge: function () { return ${!isQX}; },
       isLoon: function () { return false; },
-      isQuanX: function () { return false; },
+      isQuanX: function () { return ${isQX}; },
       isNode: function () { return false; },
       toObj: function (value, fallback) { try { return JSON.parse(value); } catch (_) { return fallback == null ? null : fallback; } },
       toStr: function (value, fallback) { try { return JSON.stringify(value); } catch (_) { return fallback == null ? null : fallback; } },
@@ -2810,7 +2867,7 @@ ${argumentHelper}  var $argument = ${argumentExpression};
     };
   }
   try {
-    var __returnValue = ${runnerName}($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval, __NativeURL || __URLShim, __NativeURLSearchParams || __URLSearchParamsShim, __NativeTextEncoder || __TextEncoderShim, __NativeTextDecoder || __TextDecoderShim, __nativeAtob || __atobShim, __nativeBtoa || __btoaShim, __nativeFetch || __fetch, __nativeCrypto || __cryptoShim);
+    var __returnValue = ${runnerName}($request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, ${isQX ? "undefined" : "$loon"}, $utils, Env, __setTimeout, __clearTimeout, __setInterval, __clearInterval, __NativeURL || __URLShim, __NativeURLSearchParams || __URLSearchParamsShim, __NativeTextEncoder || __TextEncoderShim, __NativeTextDecoder || __TextDecoderShim, __nativeAtob || __atobShim, __nativeBtoa || __btoaShim, __nativeFetch || __fetch, __nativeCrypto || __cryptoShim);
     if (__returnValue && typeof __returnValue.then === "function") {
       await Promise.resolve(__returnValue).catch(function (error) { Anywhere.log.error(String(error && error.stack || error)); __finishUnchanged(); });
     }
@@ -2831,7 +2888,7 @@ ${argumentHelper}  var $argument = ${argumentExpression};
 // original source verbatim and share its static runner exactly as in full mode.
 function wrapBodyScript(source, parsed) {
   const phase = parsed.phase === 0 ? "request" : "response";
-  const runner = "__converter_runner_" + sourceId(source);
+  const runner = "__converter_runner_body_" + sourceId(source);
   return `function ${runner}($request, $response, $done, $argument) {\n${source}\n}
 async function process(ctx) {
   var finished = false, resolveDone;
@@ -2850,18 +2907,20 @@ async function process(ctx) {
       get: function () { return assigned ? value : body(); },
       set: function (next) { assigned = true; value = next; if (response) responseAssigned = true; }
     });
-    Object.defineProperty(object, "bodyBytes", { enumerable: true, get: function () { if (!bytes) bytes = new Uint8Array(ctx.body || []); return bytes; } });
+    Object.defineProperty(object, "bodyBytes", { enumerable: true, configurable: true, get: function () { if (!bytes) bytes = new Uint8Array(ctx.body || []); return ${parsed.dialect === "quantumult-x" ? "bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)" : "bytes"}; } });
     return object;
   }
   var $request = attach({url: ctx.url, method: ctx.method || "GET", headers: headers()}, false);
+  ${phase === "response" ? `for (var unavailable of ["headers", "body", "bodyBytes"]) Object.defineProperty($request, unavailable, { configurable: true, enumerable: true, get: function () { throw new Error("Original request head/body is unavailable in Anywhere response context"); } });` : ""}
   var $response = attach({status: ctx.status || 200, statusCode: ctx.status || 200, headers: headers()}, true);
   function unchanged() { if (!finished) { finished = true; resolveDone(); } }
   function $done(value) {
     if (finished) return;
     if (value && value.response && "${phase}" === "request") { Anywhere.respond(value.response); unchanged(); return; }
     var hasBody = value && Object.prototype.hasOwnProperty.call(value, "body");
-    if (hasBody || responseAssigned && "${phase}" === "response") {
-      var output = hasBody ? value.body : $response.body;
+    var hasBytes = value && value.bodyBytes != null && (!hasBody || value.body == null);
+    if (hasBytes || hasBody || responseAssigned && "${phase}" === "response") {
+      var output = hasBytes ? value.bodyBytes : hasBody ? value.body : $response.body;
       var next = output instanceof ArrayBuffer ? new Uint8Array(output) : ArrayBuffer.isView(output) ? new Uint8Array(output.buffer, output.byteOffset, output.byteLength) : Anywhere.codec.utf8.encode(String(output == null ? "" : output));
       if ("${phase}" === "response" && ctx.body && next.length > ctx.body.length + 65535) { unchanged(); return; }
       ctx.body = next;
@@ -2950,6 +3009,14 @@ function jqMapSelectRemoval(phase, pattern, jq) {
   if (!match) return null;
   const path = jsonPathFromJq(match[1]);
   const selector = match[2].trim();
+  const inMatch = selector.match(/^\.([A-Za-z0-9_$-]+)\s*\|\s*IN\(([\s\S]+)\)\s*\|\s*not$/);
+  if (inMatch) {
+    try {
+      const values = JSON.parse("[" + inMatch[2] + "]");
+      if (values.length && values.every(v => typeof v === "string")) return { phase, op: 5, pattern: urlGate(pattern), fields: ["remove-where-field-in", path, inMatch[1], JSON.stringify(values)] };
+    } catch {}
+    return null;
+  }
 
   const keyMatch = selector.match(/^has\(\s*(["'][^"']+["'])\s*\)\s*\|\s*not$/);
   if (keyMatch) {
@@ -3393,6 +3460,8 @@ function normalizeHostnames(values, diagnostics) {
       diagnostics.push({ level: "warning", code: "complex-hostname-wildcard", message: `复杂 hostname wildcard 已跳过：${raw}`, line: 0, source: raw });
       continue;
     }
+    const unprefixed = String(raw).trim().replace(/^%APPEND%\s*/i, "");
+    if (unprefixed.includes("*") && !/^\*\.[A-Za-z0-9.-]+$/.test(unprefixed)) diagnostics.push({ level: "warning", code: "hostname-wildcard-expanded", message: `Anywhere 不支持 hostname 通配符；${raw} 已转为后缀 ${candidates.join(", ")}，TLS 拦截范围会扩大，URL gate 仍保留原规则范围。`, line: 0, source: raw });
     for (const value of candidates) {
       if (!seen.has(value)) {
         seen.add(value);
@@ -3425,7 +3494,6 @@ function normalizeHostnameCandidates(raw) {
 
   const firstLabel = value.split(".", 1)[0];
   if (firstLabel?.includes("*") && value.includes(".")) {
-    add(value.replace(/\*/g, ""));
     add(value.slice(value.indexOf(".") + 1));
     return uniqueStrings(candidates);
   }
@@ -3529,18 +3597,6 @@ function uniqueStrings(values) {
     if (!value || seen.has(value)) continue;
     seen.add(value);
     out.push(value);
-  }
-  return out;
-}
-
-function dedupeMitmRules(rules) {
-  const seen = new Set();
-  const out = [];
-  for (const rule of rules) {
-    const key = [rule.phase, rule.op, rule.pattern, ...rule.fields].join("\u001f");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(rule);
   }
   return out;
 }

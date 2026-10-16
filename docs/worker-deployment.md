@@ -38,7 +38,9 @@ Reads module metadata, rule-set kind, and `[Argument]` definitions without gener
 
 `POST /api/convert`
 
-Optional `outputFormat: "amod"` bundles output for Anywhere 2.4+. Defaults to standalone AMRS/ARRS; excessive module budgets fall back to standalone. Dynamic `/sub/module.amod?url=...&outputFormat=amod` and `anywhere://add-module` links preserve this choice. Split dynamic files add `part=0`, `part=1`, etc.
+QX Rewrite and standalone JavaScript with its own QX rule comments use the same endpoint. Remote `url` is retained for self-rule selection; pasted JS with ambiguous multiple script URLs needs a supplied `sourceUrl`. The response includes `hostnames` and `summary.hostnameCount` so wildcard-to-suffix normalization can be distinguished from missing hosts. No Worker binding or fetch-budget increase is required for QX support.
+
+`outputFormat: "auto"` (or omitted) defaults plugins to AMOD for Anywhere 2.4+ and plain rule sets to standalone ARRS. Explicit `"amod"` / `"standalone"` remain available. Excessive module budgets fall back to complete standalone files. Dynamic `/sub/module.amod?url=...&outputFormat=amod` and `anywhere://add-module` links preserve the resulting format; fallback AMRS/ARRS links explicitly request standalone output. Existing AMRS/ARRS endpoint paths remain standalone regardless of query format, preserving old subscriptions. An existing module subscription that grows over budget returns HTTP 422 `module_limit_exceeded` with standalone links and no-store headers; the app retains its old module. Split dynamic files add `part=0`, `part=1`, etc. Packaging adds no network requests or DO/KV reads/writes; existing request limits and caching remain in effect.
 
 ```json
 {

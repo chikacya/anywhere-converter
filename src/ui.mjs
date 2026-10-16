@@ -505,6 +505,7 @@ export function renderHome() {
     .status.sample-required { background: var(--violet); color: white; }
     .status.blocked { background: var(--red); color: white; }
     .chips, .files { display: flex; gap: 8px; flex-wrap: wrap; min-height: 30px; align-items: center; }
+    .module-notice { flex-basis: 100%; margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
     .chip {
       border: 1px solid var(--line);
       border-radius: 999px;
@@ -884,7 +885,7 @@ export function renderHome() {
         <img class="brand-mark" src="/icons/anywhere-converter-app-icon-v2-512.png" width="44" height="44" alt="">
         <div>
           <h1>Anywhere Converter</h1>
-          <p class="subtitle">把 Loon / Surge 插件、模块、脚本和规则集，转化为轻量、可导入的 Anywhere 配置。</p>
+          <p class="subtitle">将 Loon / Surge 插件、QX Rewrite、脚本和规则集，转换为 Anywhere 规则或模块。</p>
         </div>
       </div>
       <div class="header-actions">
@@ -901,7 +902,7 @@ export function renderHome() {
     <main class="workspace">
       <section class="panel converter-panel" aria-labelledby="input-title">
         <div class="panel-head">
-          <div class="converter-panel-title"><h2 class="panel-title" id="input-title">转换器</h2><small>导入 Loon / Surge 插件、模块或规则集</small></div>
+          <div class="converter-panel-title"><h2 class="panel-title" id="input-title">转换器</h2><small>导入插件、模块、QX Rewrite / JS 或规则集</small></div>
           <div class="actions">
             <button class="btn" id="sample" type="button" title="填入一个最小示例模块">${icon("file-plus")}示例</button>
             <button class="btn" id="clear" type="button" title="清空输入">${icon("trash")}清空</button>
@@ -914,8 +915,8 @@ export function renderHome() {
               <label>模块 / 规则集 URL
                 <input name="url" inputmode="url" autocomplete="url" placeholder="https://example.com/module.plugin">
               </label>
-              <label class="converter-source-text">插件 / 模块 / 规则集内容
-                <textarea name="source" spellcheck="false" placeholder="粘贴 Loon / Surge 插件、模块或规则集内容。只填写 URL 时，会自动读取远程内容。"></textarea>
+              <label class="converter-source-text">插件 / Rewrite / JS / 规则集内容
+                <textarea name="source" spellcheck="false" placeholder="粘贴插件、模块、QX Rewrite、带 QX 规则注释的 JS 或规则集。仅填写 URL 时自动读取；无匹配范围的独立 JS 需配套 rewrite。"></textarea>
               </label>
             </section>
             <details class="converter-options">
@@ -928,7 +929,7 @@ export function renderHome() {
                   <label>输入类型
                     <select name="sourceKind">
                       <option value="auto">自动识别</option>
-                      <option value="module">插件/模块</option>
+                      <option value="module">插件 / 模块 / Rewrite / JS</option>
                       <option value="ruleset">规则集</option>
                     </select>
                   </label>
@@ -942,15 +943,17 @@ export function renderHome() {
                 </div>
             <label>输出格式
               <select name="outputFormat">
+                <option value="auto">自动 · 插件生成 AMOD，规则集生成 ARRS</option>
                 <option value="standalone">独立 AMRS / ARRS</option>
                 <option value="amod">Anywhere 模块 AMOD（2.4+）</option>
               </select>
+              <small>AMOD 支持统一订阅与参数配置，需要 Anywhere 2.4+；超出容量时保留完整独立文件。</small>
             </label>
             <details class="icon-config" id="icon-config">
               <summary>
                 <span class="icon-summary-copy">
                   <strong>自定义图标（可选）</strong>
-                  <small>上传图片或导入 URL，自动嵌入所有生成的 AMRS / ARRS。</small>
+                  <small>上传图片或导入 URL，自动嵌入生成的模块或规则集。</small>
                 </span>
                 <span class="icon-summary-state" id="icon-summary-state">未设置</span>
               </summary>
@@ -1424,7 +1427,7 @@ $done({ body: JSON.stringify(obj) });\`;
             url: raw.url || "",
             source,
             sourceKind: raw.sourceKind || "auto",
-            outputFormat: raw.outputFormat || "standalone",
+            outputFormat: raw.outputFormat || "auto",
             ruleSetRouting: raw.ruleSetRouting || "default",
             mode: raw.aggressive === "true" ? "aggressive" : "compat",
             arguments: argumentOverrides,
@@ -1613,6 +1616,8 @@ $done({ body: JSON.stringify(obj) });\`;
       if (json.icon?.source === "url") appendSignal("URL 图标 · 动态可用");
       if ((json.dynamicFiles || []).some((file) => /[?&]cacheBust=/.test(file.url || ""))) appendSignal("已刷新缓存");
       if (json.sourceKind === "ruleset") appendSignal("规则集");
+      if ((json.files || []).some(file => file.type === "amod")) appendSignal("AMOD 模块 · Anywhere 2.4+");
+      if (json.hostnames?.length) appendSignal("MITM 域名 " + json.hostnames.length);
       if (summary.validationErrors) appendSignal("验证错误 " + summary.validationErrors);
       if ((json.preservedParameters || []).length) appendSignal("参数保留 " + json.preservedParameters.length);
       if (summary.nativeLiftCount) appendSignal("JS 原生化 " + summary.nativeLiftCount);
@@ -1648,6 +1653,12 @@ $done({ body: JSON.stringify(obj) });\`;
         filesEl.append(link);
       }
       renderConversionExplanation(json);
+      if ((json.files || []).some(file => file.type === "amod")) {
+        const notice = document.createElement("p");
+        notice.className = "module-notice";
+        notice.textContent = "模块统一管理相关规则和参数。若之前导入过同一插件的独立 AMRS / ARRS，请确认模块后停用重复项；相同条件下独立规则优先。";
+        filesEl.append(notice);
+      }
       renderDiagnostics(json);
 
       if (json.importUrl) {
@@ -1983,6 +1994,7 @@ $done({ body: JSON.stringify(obj) });\`;
 
     function signalLabel(code) {
       const labels = {
+        "amod-budget-fallback": "模块超限 · 已保留独立文件",
         "script-binary-sample-required": "二进制脚本需验证",
         "script-dynamic-sample-required": "动态脚本需验证",
         "sample-required-pattern": "高风险路径需验证",
@@ -2021,6 +2033,15 @@ $done({ body: JSON.stringify(obj) });\`;
         "logical-and-degraded": "组合条件已放宽",
         "cross-host-transparent-rewrite": "跨域透明改写",
         "complex-hostname-wildcard": "复杂 hostname 已跳过",
+        "hostname-wildcard-expanded": "hostname 范围已放宽",
+        "mitm-hostname-missing": "缺少 MITM hostname",
+        "script-metadata-required": "JS 需要配套规则",
+        "script-request-context-sample-required": "原始请求数据不可用",
+        "qx-response-head-unsupported": "响应头需人工转换",
+        "qx-local-script": "QX 本地脚本需补全",
+        "qx-rewrite-unsupported": "QX 动作暂不支持",
+        "qx-reject-not-equivalent": "QX reject 无等价映射",
+        "qx-section-unsupported": "不转换远程引用或任务",
         "map-local-script-response": "Map Local 保留响应信息",
         "map-local-native-trivial-header": "Map Local 已原生化",
         "unknown-header": "未知规则头",
@@ -2828,7 +2849,7 @@ export function renderManifest() {
   return JSON.stringify({
     name: "Anywhere Converter",
     short_name: "Anywhere",
-    description: "Loon / Surge 到 Anywhere 的转换器与规则集在线工坊",
+    description: "Loon / Surge / QX 到 Anywhere 的转换器与规则集在线工坊",
     start_url: "/",
     display: "standalone",
     background_color: "#f4f6fb",
@@ -2842,7 +2863,7 @@ export function renderManifest() {
 }
 
 export function renderServiceWorker() {
-  return `const CACHE = "anywhere-converter-shell-v4";
+  return `const CACHE = "anywhere-converter-shell-v6";
 const ASSETS = ["/", "/manifest.webmanifest", "/icons/anywhere-converter-app-icon-v2-180.png", "/icons/anywhere-converter-app-icon-v2-192.png", "/icons/anywhere-converter-app-icon-v2-512.png"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));

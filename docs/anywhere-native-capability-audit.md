@@ -1,6 +1,6 @@
 # Anywhere Native Capability Audit
 
-This table is maintained against Anywhere source (2026-10-10: ea12a6e5), not automatically generated. It documents mappings and deliberate non-mappings. Adding a converter feature should update this file and the tests together.
+This table is maintained against Anywhere source, not automatically generated. On 2026-10-16, local 381f9703 and remote 5b101e95 (2.5/404) have identical MITM runtime/docs. Compared with the previous ea12a6e5 baseline, AMOD description metadata is new; no new MITM script API was found. Adding a converter feature should update this file and the tests together.
 
 | Anywhere native capability | Source API shape | Converter status | Notes |
 | --- | --- | --- | --- |
@@ -29,7 +29,9 @@ This table is maintained against Anywhere source (2026-10-10: ea12a6e5), not aut
 
 ## Explicit Non-Goals
 
-Module `.amod` output is optional, with conservative native model budgets. URL/timers are not native globals: common HTTP(S) URL operations are shimmed, genuine delays are not fabricated. Native JSON preserves precision/unchanged text differently from JS; sample-required diagnostics remain. See [review](review-20261010.md).
+Response ctx has response headers/body, not the original request headers/body. Compatibility objects must not substitute the former for the latter. Native header-replace does not insert missing fields; static JS header assignment uses delete then add. Ordered MITM mutations must not be globally deduplicated. QX support follows the same native contracts; see [compatibility scope](qx-compatibility.md).
+
+Plugin conversion now defaults to `.amod`, with plain rule sets remaining ARRS and explicit standalone output available. Native model encoding estimates replace per-rule padding; see [module output](module-output.md) for budget and subscription behavior. URL/timers are not native globals: common HTTP(S) URL operations are shimmed, genuine delays are not fabricated. Native JSON preserves precision/unchanged text differently from JS; sample-required diagnostics remain. See [review](review-20261010.md).
 
 - The converter does not translate arbitrary `crypto.subtle` workflows into `Anywhere.crypto`.
 - The converter does not translate generic protobuf bundles into field-level native edits.

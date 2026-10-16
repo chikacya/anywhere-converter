@@ -5,17 +5,24 @@ export function parseScript(source) {
   catch { return null; }
 }
 
-export function liftRequestStatic(source, parsed) {
+export function liftRequestStatic(source, parsed, framingHeaders = new Set()) {
   if (parsed.phase !== 0) return [];
   const ast=parseScript(source); if(!ast)return [];
   const constants=new Map(), rules=[];let completed=false;
   const member=(n,object,key)=>n?.type==='MemberExpression'&&!n.computed&&n.object.name===object&&n.property.name===key;
   const value=n=>n?.type==='Literal'&&typeof n.value==='string'?n.value:n?.type==='Identifier'?constants.get(n.name):undefined;
   const header=n=>n?.type==='MemberExpression'&&member(n.object,'$request','headers')?(n.computed?value(n.property):n.property.name):undefined;
+  const setHeader=(name,text)=>{
+    name=String(name).toLowerCase();
+    if(framingHeaders.has(name)||!/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(name)||/[\r\n\0]/.test(text))return false;
+    // Native replace never inserts a missing field. Delete-all plus add also
+    // avoids duplicate values when the incoming header is already present.
+    rules.push({phase:0,op:2,pattern:parsed.pattern,fields:[name]},{phase:0,op:1,pattern:parsed.pattern,fields:[name,text]});return true;
+  };
   const headers=n=>{
     if(n?.type!=='ObjectExpression')return false;
     for(const p of n.properties){if(p.type!=='Property'||p.computed||p.method||p.kind!=='init'||value(p.value)===undefined)return false;}
-    for(const p of n.properties)rules.push({phase:0,op:3,pattern:parsed.pattern,fields:[String(p.key.name??p.key.value).toLowerCase(),value(p.value)]});return true;
+    for(const p of n.properties)if(!setHeader(p.key.name??p.key.value,value(p.value)))return false;return true;
   };
   for(const statement of ast.body){
     if(statement.type==='EmptyStatement')continue;if(completed)return [];
@@ -30,12 +37,14 @@ export function liftRequestStatic(source, parsed) {
         if(p.type!=='Property'||p.computed||p.kind!=='init'||p.method)return [];
         const key=p.key.name??p.key.value;
         if(key==='url'&&value(p.value)!==undefined)rules.push({phase:0,op:0,pattern:parsed.pattern,fields:['0',value(p.value)]});
-        else if(key==='headers'&&headers(p.value)){}else return [];
+        // A complete replacement header object may intentionally remove unknown
+        // incoming fields; per-name edits cannot represent that contract.
+        else return [];
       }
       completed=true;continue;
     }
     if(e.type==='AssignmentExpression'&&e.operator==='='){
-      const name=header(e.left);if(name&&value(e.right)!==undefined){rules.push({phase:0,op:3,pattern:parsed.pattern,fields:[name.toLowerCase(),value(e.right)]});continue;}
+      const name=header(e.left);if(name&&value(e.right)!==undefined){if(!setHeader(name,value(e.right)))return [];continue;}
       if(member(e.left,'$request','url')){
         if(value(e.right)!==undefined){rules.push({phase:0,op:0,pattern:parsed.pattern,fields:['0',value(e.right)]});continue;}
         const c=e.right,r=c.arguments?.[0],replacement=value(c.arguments?.[1]);

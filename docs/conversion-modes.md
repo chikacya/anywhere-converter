@@ -22,7 +22,7 @@ CLI/API/订阅仍接受 mode=aggressive，但不再开启基于类型猜测的�
 
 preserveParameters=true 输出原生参数；局部和 globalThis.$argument 均读取当前参数，每个合并子脚本独立适配。
 
-默认 AMRS/ARRS；outputFormat=amod 尝试生成 Anywhere 2.4+ 模块。超过保守编码预算回退独立文件，不截断规则。详见 [验证报告](review-20261010.md)。
+默认 `outputFormat=auto`：插件、模块和 QX Rewrite / JS 生成 Anywhere 2.4+ AMOD；纯规则集保持 ARRS。`standalone` 选择独立 AMRS/ARRS，`amod` 显式打包。超出原生模型编码预算时保留全部独立文件，不截断规则；已有模块订阅超限返回 HTTP 422，客户端保留旧模块，需要重新转换并导入独立链接。详见 [模块输出说明](module-output.md)。
 
 ## 验证入口
 

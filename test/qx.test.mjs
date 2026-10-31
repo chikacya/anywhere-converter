@@ -26,11 +26,12 @@ test('QX without sections, MITM options and filters retains source scope',()=>{
   assert.equal(missing.hostnames.length,0);assert(missing.diagnostics.some(d=>d.code==='mitm-hostname-missing'));
 });
 
-test('QX explicit actions retain redirect capture, body regex and empty reject body',()=>{
+test('QX explicit actions retain redirect capture, body regex and empty reject body',async()=>{
   const source='[rewrite_local]\n^https://example.com/(.*) url 302 https://next.example/$1\n^https://example.com/a.png url reject-200\n^https://example.com/data url response-body "ad":true response-body "ad":false\n[mitm]\nhostname=example.com';
   const result=convertAny(source), content=result.files[0].content;
   assert.match(content,/1, https:\/\/next.example\/\$1/);
-  assert.match(content,/a\.png, 2, /);assert(!content.includes('a.png, 3'));
+  const response=await runConverted(result,'',{}, {phase:'request',url:'https://example.com/a.png'});
+  assert.equal(response.responses[0].body,'');assert.equal(response.responses[0].status,200);assert(!content.includes('a.png, 3'));
   const body=content.split('\n').find(x=>/^1, 4,/.test(x));assert.deepEqual(internals.parseCsv(body).slice(3),['"ad":true','"ad":false']);
   assert.deepEqual(validateAnywhereOutput(result.files[0]),[]);
 });

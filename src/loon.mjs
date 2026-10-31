@@ -234,7 +234,12 @@ export function convertLoonRewrite(node,definitions,values,options={},jqMapper) 
       if(/^reject(?:_img|_dict|_array|_video)?$/.test(a.name)){
         arity(a,1,a.name==="reject"?2:1);const status=fixed(a.args[0],"number");
         if(!Number.isInteger(status)||status<100||status>599)fail("reject 状态码必须为 100–599 整数");
-        if(a.name==="reject_video"||a.name==="reject_img")fail("该媒体 Reject 的 MIME/二进制契约尚未映射，请使用显式 Mock");
+        if(a.name==="reject_video")fail("空白视频二进制契约尚未映射，请使用显式 Mock");
+        if(a.name==="reject_img"){
+          if(status===200&&b.nativeCondition){rule(0,["3"],0);continue;}
+          runtimePhase=0;if(node.phase)fail("reject_img 仅支持请求阶段");
+          script(`Anywhere.respond({status:${status},headers:[["content-type","image/gif"]],body:Anywhere.codec.base64.decode("R0lGODlhAQABAPAAAP///wAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==")});`);continue;
+        }
         const body=a.name==="reject_dict"?'"{}"':a.name==="reject_array"?'"[]"':a.args[1]?typed(a.args[1],"string").code:'""';
         const type=a.name==="reject_dict"||a.name==="reject_array"?"application/json":"text/plain";
         runtimePhase=0;
@@ -292,8 +297,13 @@ export function convertLoonRewrite(node,definitions,values,options={},jqMapper) 
     if(mock.length)runtime.push('Anywhere.respond(__mock);');
     if(runtime.length){
       if(rules.length)fail("混合原生与脚本 Action 顺序无法保证");
-      const source=`async function process(ctx){${b.helper}if(!(${b.expression}))return;${runtime.join('\n')}\n}`;
-      rules.push({phase:runtimePhase,op:100,pattern:runtimePhase!==node.phase?'^https?://':b.pattern.replace(/^\(\?[ims]+\)/,''),fields:[options.base64(source)],scriptSource:source});
+      const needsGuard=!b.nativeCondition||hasDynamic||/^\(\?/.test(b.pattern);
+      const source=`async function process(ctx){${needsGuard?b.helper+'if(!('+b.expression+'))return;':''}${runtime.join('\n')}\n}`;
+      // A script dispatcher uses JS RegExp gates, which cannot carry ICU's
+      // (?i) prefix. Do not strip the flags and narrow the candidate gate:
+      // use a broad transport gate and keep the exact flagged condition inside.
+      const scriptPattern=runtimePhase!==node.phase||/^\(\?[ims]+\)/.test(b.pattern)?'^https?://':b.pattern;
+      rules.push({phase:runtimePhase,op:100,pattern:scriptPattern,fields:[options.base64(source)],scriptSource:source});
     }
     return rules.map(rule=>({...rule,loonHostPatterns:b.urlPatterns,loonV2:true}));
   }catch(error){return {kind:"skip",code:"loon-rewrite-unsupported",message:error.message};}

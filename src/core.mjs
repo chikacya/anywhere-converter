@@ -3014,7 +3014,14 @@ function jqToBodyJson(phase, pattern, rawJq) {
   match = jq.match(/^\.[A-Za-z0-9_.$[\]"'-]+\s*=\s*(.+)$/);
   if (match) {
     const left = jq.slice(0, jq.indexOf("=")).trim();
-    return { phase, op: 5, pattern: urlGate(pattern), fields: ["replace", jsonPathFromJq(left), match[1].trim()] };
+    const literal = match[1].trim();
+    try { JSON.parse(literal); } catch { return null; }
+    // jq assignment creates an absent root member. Native replace would leave
+    // it missing; add is the matching upsert when the root parent exists.
+    const rootMember = /^\.[A-Za-z_$][\w$-]*$/.test(left);
+    return { phase, op: 5, pattern: urlGate(pattern), fields: [rootMember ? "add" : "replace", jsonPathFromJq(left), literal],
+      ...(!rootMember ? { degraded: { code: "jq-assignment-parent-sample-required", message: "嵌套 jq 赋值在父路径缺失时会创建结构；当前原生规则不能保证该行为，请核对响应样本。" } } : {}),
+    };
   }
   return null;
 }
@@ -3347,16 +3354,28 @@ function headerRuleFromParts(phase, pattern, action, name, value = "") {
 
 function rejectRule(pattern, content) {
   if (content.kind === "gif") return { phase: 0, op: 0, pattern: urlGate(pattern), fields: ["3"] };
+  if (content.kind === "json") return mapLocalRespondScriptRule(pattern, { status: 200, dataType: "json", data: content.value });
+  if (content.kind === "text" && !content.value || content.kind === "data" && !content.value) {
+    // Native empty text/data submodes produce Anywhere's default payload,
+    // not a zero-byte response. Preserve the source's explicit empty body.
+    return mapLocalRespondScriptRule(pattern, { status: 200, dataType: content.kind === "data" ? "base64" : "text", data: "", ...(content.kind === "data" ? { header: "Content-Type:application/octet-stream" } : {}) });
+  }
   if (content.kind === "data") return { phase: 0, op: 0, pattern: urlGate(pattern), fields: ["4", content.value || ""] };
+  if (content.kind === "legacy-reject") return { phase: 0, op: 0, pattern: urlGate(pattern), fields: ["2", ""], degraded: {
+    code: "reject-connection-sample-required",
+    message: "旧 Loon/Surge 裸 reject 表示拒绝连接，Anywhere 暂无等价 URL 断连操作；仅保留历史 200 默认响应近似，不能视为完整转换。不会扩大为整域名拦截，请实机核对或改用上游明确的状态码响应。",
+  } };
   return { phase: 0, op: 0, pattern: urlGate(pattern), fields: ["2", content.value || ""] };
 }
 
 function rejectContentForAction(rawAction = "", pattern = "") {
   const action = String(rawAction).toLowerCase();
-  if (action === "reject-dict" || action === "reject-json") return { kind: "text", value: "{}" };
-  if (action === "reject-array") return { kind: "text", value: "[]" };
+  if (action === "reject-dict" || action === "reject-json") return { kind: "json", value: "{}" };
+  if (action === "reject-array") return { kind: "json", value: "[]" };
   if (action === "reject-img" || action === "reject-200-img") return { kind: "gif" };
   if (action === "reject-data") return { kind: "data", value: "" };
+  if (action === "reject-200") return { kind: "text", value: "" };
+  if (["reject", "reject-drop", "reject-no-drop"].includes(action)) return { kind: "legacy-reject" };
   if (looksLikeImagePattern(pattern)) return { kind: "gif" };
   return { kind: "text", value: "" };
 }
@@ -3854,6 +3873,14 @@ function shareStaticRunners(sources) {
 function unionRegexPattern(patterns) {
   const unique = uniqueStrings(patterns);
   if (unique.length < 2) return "";
+  const flags = unique.map(pattern => pattern.match(/^\(\?([ims]+)\)/)?.[1] || "");
+  if (flags.some(Boolean)) {
+    // Keep common ICU modifiers at the beginning instead of burying (?i)
+    // inside every union branch. Mixed modes remain independent native rules.
+    if (!flags.every(flag => flag === flags[0])) return "";
+    const bare = unique.map(pattern => pattern.replace(/^\(\?[ims]+\)/, ""));
+    return `(?${flags[0]})` + (new Set(bare).size === 1 ? bare[0] : unionRegexPattern(bare));
+  }
   const compact = compactRegexUnion(unique);
   if (compact) return compact;
   return unique.map((pattern) => `(?:${pattern})`).join("|");

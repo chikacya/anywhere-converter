@@ -184,7 +184,7 @@ hostname = *.example.com, *api.example.com
   const result = convertModule(source);
   const amrs = result.files.find((file) => file.type === "amrs");
   assert.match(amrs.content, /hostname = example\.com/);
-  assert.match(amrs.content, /0, 0, \^https/);
+  assert.match(amrs.content, /0, 100, \^https/);
   assert.match(amrs.content, /1, 5, \^https/);
   assert.match(amrs.content, /api\.example\.com/);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
@@ -271,8 +271,10 @@ test("converts surge dash rewrite syntax", () => {
 hostname = api.example.com
 `);
   const amrs = result.files.find((file) => file.type === "amrs");
-  assert.match(amrs.content, /0, 0, \^https/);
-  assert.match(amrs.content, /\{\}/);
+  assert.match(amrs.content, /0, 100, \^https/);
+  const source = Buffer.from(internals.parseCsv(amrs.content.split("\n").find(line => /^0, 100,/.test(line)))[3], "base64").toString();
+  assert.match(source, /application\/json/);
+  assert.match(source, /body: "\{\}"/);
   assert.deepEqual(validateAnywhereOutput(amrs), []);
 });
 

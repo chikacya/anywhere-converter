@@ -32,6 +32,26 @@ try {
     entries.push({input:JSON.stringify(object),operations:qxOperations});
     js.push(JSON.stringify({...object,data:object.data.filter(x=>!['广告','banner'].includes(x.kind))}));
   }
+  let jqOracleCases=0;
+  const jqVersion=spawnSync('jq',['--version'],{encoding:'utf8'});
+  if(jqVersion.status===0){
+    const filters=[
+      ['.data = []',[{}, {data:[1]}, {data:null}]],
+      ['.data = {}',[{}, {data:[1]}, {data:null}]],
+      ['.data |= map(select(.type != "DISCOVERY_HEADER" and .type != "DISCOVERY_BANNER"))',[
+        {data:[{type:'DISCOVERY_HEADER'},{type:'DISCOVERY_BANNER'},{type:'EPISODE'}]}, {data:[]}, {data:[{other:1},null,{type:'EPISODE'}]},
+      ]],
+    ];
+    for(const [filter,inputs] of filters){
+      const result=convertAny("hostname=example.com\n^https://example.com/ url jsonjq-response-body '"+filter+"'");
+      const operations=result.files[0].content.split('\n').filter(x=>/^1, 5,/.test(x)).map(x=>internals.parseCsv(x).slice(3));
+      assert(operations.length,filter);
+      for(const object of inputs){
+        const input=JSON.stringify(object),oracle=spawnSync('jq',['-c',filter],{input,encoding:'utf8'});
+        assert.equal(oracle.status,0,oracle.stderr);entries.push({input,operations});js.push(oracle.stdout.trim());jqOracleCases++;
+      }
+    }
+  }
   const execute=spawnSync(resolve(directory,'probe'),[],{input:JSON.stringify(entries),encoding:'utf8'});
   assert.equal(execute.status,0,execute.stderr); const native=JSON.parse(execute.stdout);
   let structural=0,invalid=0,largeInteger=0,formatting=0;
@@ -41,5 +61,5 @@ try {
     assert.deepEqual(JSON.parse(output),JSON.parse(js[i]));structural++;
     if(output!==js[i])formatting++;
   });
-  console.log(JSON.stringify({cases:entries.length,structural,invalid,largeIntegerPrecisionDifference:largeInteger,serializationDifference:formatting,note:'Structural JSON equivalence, not byte-identical JS stringify. Large integers stay exact natively.'},null,2));
+  console.log(JSON.stringify({cases:entries.length,structural,invalid,largeIntegerPrecisionDifference:largeInteger,serializationDifference:formatting,jqOracleCases,note:'Structural JSON equivalence, not byte-identical JS stringify. Large integers stay exact natively. jq oracle runs when jq CLI is installed.'},null,2));
 } finally { await rm(directory,{recursive:true,force:true}); }

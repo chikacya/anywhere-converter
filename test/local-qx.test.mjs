@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { convertAny, convertAnyAsync, validateAnywhereOutput } from '../src/core.mjs';
+import { convertAny, convertAnyAsync, validateAnywhereOutput, internals } from '../src/core.mjs';
 import { runConverted, runUpstream } from './runtime-harness.mjs';
 
 const directory=new URL('../local-verification/20261016/',import.meta.url);
@@ -23,7 +23,14 @@ for(const file of ['tx.sgmodule','xiaoxiongyouhao.js','moyu-MoJiWeatherAds.conf'
         assert.equal((await runConverted(result,input,{}, {url:'https://www.xiaoxiongyouhao.com/api/vip/index.php'})).text,await runUpstream(source,input));
       }
     }
-    if(file.startsWith('moyu-'))assert.equal(result.report.scriptMetrics.totalScriptBytes,0);
+    if(file.startsWith('moyu-')) {
+      const rows=result.files.flatMap(f=>f.content.split('\n'));
+      assert(!rows.some(row=>/^1, 10[01],/.test(row)),'body rewrites remain native');
+      for(const row of rows.filter(row=>/^0, 100,/.test(row))){
+        const code=Buffer.from(internals.parseCsv(row)[3],'base64').toString();
+        assert(code.includes('Anywhere.respond('));assert(!code.includes('__converter_runner_'));
+      }
+    }
     if(file==='moyu-MoJiWeatherAds.conf')assert(result.diagnostics.some(d=>d.code==='hostname-wildcard-expanded'));
     const module=convertAny(source,{...options,outputFormat:'amod'});
     assert.equal(module.files[0].type,'amod');assert.match(module.files[0].content,/hostname = /);

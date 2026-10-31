@@ -21,6 +21,7 @@ Anywhere-converter 是一个通用的 Loon / Surge 插件、模块、QX Rewrite�
 
 ### 功能
 
+- 支持 Loon 3.5.1 新版 Rewrite / Script 的可映射子集，兼容旧语法；条件、批量动作、类型化参数和脚本首条命中详见[支持范围](docs/loon-compatibility.md)，无法保留语义的行明确提示
 - Loon / Surge 模块、插件转换为 Anywhere 模块 `.amod`，统一包含 MITM、路由规则与参数配置
 - Loon / Surge 规则集转换为 Anywhere 路由规则 `.arrs`，超过 Anywhere 单文件 100,000 条上限时自动拆分
 - `[MITM] hostname`、`[Rule]`、`[Rewrite]`、`[Header Rewrite]`、`[Map Local]`、`[Body Rewrite]`、`[Argument]` 等常见配置转换
@@ -260,6 +261,7 @@ Self-deployment is better because:
 
 ### Features
 
+- Supports a mapped subset of Loon 3.5.1 Rewrite / Script syntax alongside legacy syntax: conditions, batch actions, typed arguments and first-match HTTP scripts. See [support and limits](docs/loon-compatibility.md); unsupported semantics produce explicit diagnostics
 - Convert Loon / Surge modules and plugins to Anywhere `.amod` modules containing MITM, routing rules and parameter definitions
 - Convert Loon / Surge rule sets to Anywhere routing `.arrs`, automatically splitting files above Anywhere's 100,000-rule per-file limit
 - Support common sections such as `[MITM]`, `[Rule]`, `[Rewrite]`, `[Header Rewrite]`, `[Map Local]`, `[Body Rewrite]`, and `[Argument]`

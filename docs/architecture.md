@@ -7,12 +7,15 @@ The converter is split into small runtime-neutral entry points instead of a mono
 | File | Role |
 | --- | --- |
 | `src/core.mjs` | Parser, normalization, rule mapping, emitter, validator, script wrapper. |
+| `src/loon.mjs` | Loon 3.5.1 syntax tokenizer/parser, typed binding, native mapping and guarded scripts. |
 | `bin/cli.mjs` | Local command-line entry point. |
 | `src/worker.mjs` | Cloudflare Worker API, source fetching, KV persistence, rule serving. |
 | `src/ui.mjs` | Worker browser UI rendering. |
 | `test/core.test.mjs` | Node test suite for parser/emitter/mapping behavior. |
 
 ## Pipeline
+
+Loon v2 items bypass legacy text substitution and bind plugin values to parsed nodes. No `eval` or generated configuration reparse is used. Only static single-URL conditions with compatible actions lift to native rules. Conditional JSON uses `Anywhere.json`; unsupported readonly-header operations reject the complete source line. When v2 HTTP scripts occur, all HTTP Script items in that module participate in a shared first-complete-match selector per phase, while Rewrite scripts remain independent. Same-source sharing never merges away the selector or different arguments. Cross Rewrite/Script ordering still requires a sample; see [Loon support](loon-compatibility.md).
 
 ```mermaid
 flowchart LR

@@ -1994,6 +1994,11 @@ $done({ body: JSON.stringify(obj) });\`;
 
     function signalLabel(code) {
       const labels = {
+        "loon-v2-invalid": "Loon 新语法无效",
+        "loon-rewrite-unsupported": "Loon Rewrite 需处理",
+        "loon-script-unsupported": "Loon Script 需处理",
+        "loon-trigger-unsupported": "不支持任务触发器",
+        "loon-order-sample-required": "Loon 混合执行顺序需验证",
         "amod-budget-fallback": "模块超限 · 已保留独立文件",
         "script-binary-sample-required": "二进制脚本需验证",
         "script-dynamic-sample-required": "动态脚本需验证",
@@ -2863,7 +2868,7 @@ export function renderManifest() {
 }
 
 export function renderServiceWorker() {
-  return `const CACHE = "anywhere-converter-shell-v6";
+  return `const CACHE = "anywhere-converter-shell-v7";
 const ASSETS = ["/", "/manifest.webmanifest", "/icons/anywhere-converter-app-icon-v2-180.png", "/icons/anywhere-converter-app-icon-v2-192.png", "/icons/anywhere-converter-app-icon-v2-512.png"];
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));

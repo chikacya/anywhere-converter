@@ -1,6 +1,7 @@
 import { liftResponseScript, liftRequestStatic, parseScript } from "./js-lift.mjs";
 import { packageAmod, splitAmod, moduleBudget } from "./amod.mjs";
 import { normalizeSection, parseQXRewrite, scriptCommentConfig } from "./qx.mjs";
+import { isLoonV2, parseLoonV2, prepareLoonScript, convertLoonRewrite } from "./loon.mjs";
 
 const ROUTING = {
   default: 0,
@@ -56,6 +57,7 @@ export function convertModule(source, options = {}) {
   const preserveParameters = shouldPreserveParameters(options);
   const referencedArguments = preserveParameters ? collectReferencedArguments(parsed.items) : new Set();
   const parameterState = preserveParameters ? amrsParameterStateFromArguments(parsed.arguments, argumentValues, diagnostics, { referencedArguments }) : { parameters: [], nameMap: {} };
+  const loonFirstMatch = parsed.items.some(item => item.section === "Script" && item.loonV2);
   if (mode === "aggressive") {
     diagnostics.push({ level: "warning", code: "aggressive-mode", message: "旧 aggressive 参数仍兼容，但不再启用未经完整证明的 JSON 提升；当前采用与 compat 相同的安全策略。", line: 0, source: "" });
   }
@@ -85,7 +87,7 @@ export function convertModule(source, options = {}) {
     mitmRules.push(rule);
     converted += 1;
     if (rule.degraded) addDiagnostic("warning", rule.degraded.code, rule.degraded.message, line, sourceLine);
-    const sourceHosts = extractHostsFromPattern(rule.pattern);
+    const sourceHosts = uniqueStrings([extractHostsFromPattern(rule.pattern), ...(rule.loonHostPatterns || []).map(extractHostsFromPattern)].flat());
     for (const host of sourceHosts) inferredHosts.add(host);
     const targetHost = transparentRewriteTargetHost(rule);
     if (targetHost && !sourceHosts.includes(targetHost) && !crossHostRewriteTargets.has(targetHost)) {
@@ -142,7 +144,10 @@ export function convertModule(source, options = {}) {
     }
     case "Rewrite":
     case "URL Rewrite": {
-      const mapped = convertRewriteLine(item);
+      const legacyLoon = !item.loonV2 && legacyLoonRewrite(item.text);
+      const mapped = item.loonV2 || legacyLoon
+        ? convertLoonRewrite(item.loonV2 || legacyLoon, parsed.arguments, argumentValues, { ...options, preserveParameters, parameterNameMap: parameterState.nameMap, base64 }, jqToBodyJson)
+        : convertRewriteLine(item);
       if (mapped?.kind === "skip") {
         skipped += 1;
         addDiagnostic(mapped.level || "warning", mapped.code, mapped.message, item.line, item.raw);
@@ -191,7 +196,13 @@ export function convertModule(source, options = {}) {
       break;
     }
     case "Script": {
-      const mapped = convertScriptLine(item, { ...options, mode, argumentValues, parameterNameMap: parameterState.nameMap });
+      const loonScript = item.loonV2 && prepareLoonScript(item.loonV2, parsed.arguments, argumentValues, { ...options, preserveParameters, parameterNameMap: parameterState.nameMap });
+      const mapped = loonScript?.error ? { code: loonScript.error, message: loonScript.message }
+        : convertScriptLine(loonScript ? { ...item, script: loonScript } : item, { ...options, mode, argumentValues, parameterNameMap: parameterState.nameMap, ...(loonFirstMatch ? { jsLift: false } : {}) });
+      if (loonFirstMatch && mapped?.rule && !Array.isArray(mapped.rule)) {
+        mapped.rule.loonHTTP = true;
+        mapped.rule.loonGuard = loonScript?.loonGuard || "true";
+      }
       if (mapped?.rule) {
         addMitmMapped(mapped.rule, item.line, item.raw);
         for (const diagnostic of mapped.diagnostics || []) {
@@ -199,7 +210,7 @@ export function convertModule(source, options = {}) {
         }
       } else {
         skipped += 1;
-        addDiagnostic("info", mapped?.code || "script-skipped", mapped?.message || "脚本规则已识别；当前未下载远程脚本，启用 fetchScripts 后可用兼容层保留。", item.line, item.raw);
+        addDiagnostic(mapped?.code?.startsWith("loon-") ? "warning" : "info", mapped?.code || "script-skipped", mapped?.message || "脚本规则已识别；当前未下载远程脚本，启用 fetchScripts 后可用兼容层保留。", item.line, item.raw);
       }
       break;
     }
@@ -210,6 +221,10 @@ export function convertModule(source, options = {}) {
       }
       break;
     }
+  }
+
+  if (loonFirstMatch && parsed.items.some(item => ["Rewrite", "URL Rewrite", "Body Rewrite", "Header Rewrite", "Map Local"].includes(item.section))) {
+    addDiagnostic("warning", "loon-order-sample-required", "Loon 的 Rewrite/Script 禁用关系及原始响应条件快照与 Anywhere 的分阶段处理不同；混用模块需实机核对，不能承诺整体执行顺序等价。");
   }
 
   const name = options.name || parsed.metadata.name || "Converted Module";
@@ -276,7 +291,7 @@ export async function convertModuleAsync(source, options = {}) {
       const resolvedItem = resolveItemArguments(originalItem, argumentValues);
       if (!resolvedItem.enabled) continue;
       const item = resolvedItem.item;
-      const script = item.script || parseScriptLine(item.text);
+      const script = item.loonV2 ? prepareLoonScript(item.loonV2, parsed.arguments, argumentValues, { ...options, preserveParameters: shouldPreserveParameters(options) }) : item.script || parseScriptLine(item.text);
       if (!script?.path || script.inlineScript || attemptedScriptURLs.has(script.path)) continue;
       attemptedScriptURLs.add(script.path);
       if (scriptFetchAttempts >= scriptFetchLimit) {
@@ -562,14 +577,15 @@ function parseArgumentLine(line, rawLine = "", lineNumber = 0) {
   const fields = parseCsv(split[1]);
   const type = String(fields[0] || "string").trim().toLowerCase();
   const knownType = /^(?:switch|input|text|string|number|select|checkbox)$/i.test(type);
-  const defaultValue = knownType ? (fields[1] ?? "") : (fields[0] ?? "");
+  const hasDefaultValue = fields.length > 1 && !/^(?:tag|desc|description|type)\s*=/i.test(fields[1]);
+  const defaultValue = knownType ? (hasDefaultValue ? fields[1] : "") : (fields[0] ?? "");
   const meta = {};
   const optionFields = [];
   for (const field of fields.slice(knownType ? 1 : 0)) {
     const pair = splitFirst(String(field || ""), "=");
     if (pair) {
       const key = pair[0].trim().toLowerCase();
-      if (key === "tag" || key === "desc" || key === "description") {
+      if (key === "tag" || key === "desc" || key === "description" || key === "type") {
         meta[key === "description" ? "desc" : key] = pair[1].trim();
       }
       continue;
@@ -587,6 +603,8 @@ function parseArgumentLine(line, rawLine = "", lineNumber = 0) {
   return {
     name,
     type: knownType ? type : "string",
+    ...(meta.type ? { valueType: meta.type } : {}),
+    hasDefaultValue,
     defaultValue: normalizeArgumentValueForType(defaultValue, knownType ? type : "string"),
     options,
     tag: meta.tag || "",
@@ -824,7 +842,10 @@ function resolveArgumentValues(argumentDefinitions = {}, overrides = {}) {
 }
 
 function resolveItemArguments(item, argumentValues) {
-  const enableMatch = item.text.match(/\benable\s*=\s*(?:\{([A-Za-z_][A-Za-z0-9_-]*)\}|([A-Za-z_][A-Za-z0-9_-]*|true|false|1|0))/i);
+  // New Loon values are typed AST data; text substitution would allow syntax
+  // injection and a second interpolation pass.
+  if (item.loonV2) return { enabled: true, item };
+  const enableMatch = item.text.match(/\benabled?\s*=\s*(?:\{([A-Za-z_][A-Za-z0-9_-]*)\}|([A-Za-z_][A-Za-z0-9_-]*|true|false|1|0))/i);
   if (enableMatch) {
     const key = enableMatch[1] || enableMatch[2];
     const value = Object.prototype.hasOwnProperty.call(argumentValues, key) ? argumentValues[key] : key;
@@ -902,8 +923,15 @@ export function parseModule(source, options = {}) {
       return;
     }
 
-    const line = stripInlineComment(raw).trim();
+    const line = isLoonV2(raw) ? raw : stripInlineComment(raw).trim();
     if (!line) return;
+
+    if ((["Rewrite", "URL Rewrite", "Script"].includes(section) || !section) && isLoonV2(line)) {
+      const script = section === "Script" || !section && /\bthen\s+script\(/.test(line);
+      const loonV2 = parseLoonV2(line, script);
+      items.push({ section: script ? "Script" : "Rewrite", text: line, raw: rawLine, line: lineNumber, loonV2 });
+      return;
+    }
 
     if (section === "MITM" || !section && /^hostname\s*=/i.test(line)) {
       const split = splitFirst(line, "=");
@@ -1266,6 +1294,27 @@ function normalizeLogicalAndUrlPattern(pattern) {
   return pattern;
 }
 
+function legacyLoonRewrite(text) {
+  const parts = splitCommand(text), action = parts[1] || "";
+  const header = /^(response-)?header-(add|replace|del|replace-regex)$/.exec(action);
+  // Existing JSON/jq handlers also support generated filters; leave those on
+  // their established path instead of narrowing them to the new native subset.
+  if (!header) return null;
+  const phase = header[1] ? 1 : 0;
+  const method = ({add:"add",replace:"set",del:"del","replace-regex":"replace"})[header[2]];
+  const size = method === "del" ? 1 : method === "replace" ? 3 : 2;
+  const args = parts.slice(2), actions = [];
+  if (!args.length || args.length % size) return { error: "loon-legacy-invalid", message: "旧 Loon 批量参数数量不完整。" };
+  for (let i = 0; i < args.length; i += size) {
+    const values = args.slice(i, i + size).map((value, j) => {
+      if (method === "replace" && j === 1) return { kind: "regex", pattern: value, flags: "" };
+      return { kind: "literal", value: value.replace(/\\x20/g, " ") };
+    });
+    actions.push({name: `${phase ? "response" : "request"}.header.${method}`, args: values});
+  }
+  return { phase, condition: {kind:"compare",left:{kind:"variable",name:"url"},op:"regex",right:{kind:"regex",pattern:parts[0],flags:""}}, actions, options:{}, script:false };
+}
+
 function convertRewriteLine(item) {
   if (item.bodyReplace) return { phase: item.bodyReplace.phase, op: 4, pattern: urlGate(item.pattern), fields: [item.bodyReplace.search, item.bodyReplace.replacement] };
   if (item.dialect === "quantumult-x") {
@@ -1580,7 +1629,7 @@ function convertScriptLine(item, options) {
   const wrapped = wrapLoonSurgeScript(source, parsed);
   diagnostics.push({ level: "warning", code: "script-compat-layer", message: "脚本已用轻量 Loon/Surge 兼容层包装；复杂网络请求、二进制/protobuf 或平台 API 仍需实机验证。" });
   return {
-    rule: { phase: parsed.phase, op: 100, pattern: urlGate(parsed.pattern), fields: [base64(wrapped)], scriptSource: wrapped, requiresBody: parsed.requiresBody },
+    rule: { phase: parsed.phase, op: 100, pattern: parsed.loonHTTP ? parsed.pattern : urlGate(parsed.pattern), fields: [base64(wrapped)], scriptSource: wrapped, requiresBody: parsed.requiresBody, ...(parsed.loonHostPatterns ? { loonHostPatterns: parsed.loonHostPatterns, loonV2: true } : {}) },
     diagnostics,
   };
 }
@@ -2468,14 +2517,15 @@ function wrapLoonSurgeScript(source, parsed) {
     });
   }
 ` : "";
-  const argumentExpression = runtimeArgument
+  const argumentExpression = parsed.loonArgumentCode || (runtimeArgument
     ? `__argumentTemplate(${JSON.stringify(runtimeArgument.template)}, ${JSON.stringify(runtimeArgument.fallback || {})}, ${JSON.stringify(runtimeArgument.params || {})})`
-    : JSON.stringify(argument);
+    : JSON.stringify(argument));
   const timeoutMs = parsed.timeoutMs || 4500;
   const binaryBodyMode = parsed.binaryBodyMode === true;
   const runnerName = "__converter_runner_full_" + sourceId(source);
   const runnerArgs = "$request, $response, $done, $persistentStore, $prefs, $httpClient, $task, $argument, $notification, $notify, $environment, $loon, $utils, Env, setTimeout, clearTimeout, setInterval, clearInterval, URL, URLSearchParams, TextEncoder, TextDecoder, atob, btoa, fetch, crypto";
   return `function ${runnerName}(${runnerArgs}) {\n${source}\n}\nasync function process(ctx) {
+  ${parsed.loonGuard ? `if (!(${parsed.loonGuard})) return;` : ""}
   var __binaryBodyMode = ${binaryBodyMode ? "true" : "false"};
   function __bodyIn(value) {
     if (!value) return new Uint8Array();
@@ -2891,6 +2941,7 @@ function wrapBodyScript(source, parsed) {
   const runner = "__converter_runner_body_" + sourceId(source);
   return `function ${runner}($request, $response, $done, $argument) {\n${source}\n}
 async function process(ctx) {
+  ${parsed.loonGuard ? `if (!(${parsed.loonGuard})) return;` : ""}
   var finished = false, resolveDone;
   var donePromise = new Promise(function (resolve) { resolveDone = resolve; });
   var text, bytes;
@@ -2927,7 +2978,7 @@ async function process(ctx) {
     }
     Anywhere.done(); unchanged();
   }
-  try { await ${runner}($request, $response, $done, ${JSON.stringify(String(parsed.argument || ""))}); }
+  try { await ${runner}($request, $response, $done, ${parsed.loonArgumentCode || JSON.stringify(String(parsed.argument || ""))}); }
   catch (error) { Anywhere.log.error(String(error && error.stack || error)); unchanged(); }
   ${/\$done/.test(source) ? "await donePromise;" : "unchanged();"}
 }`;
@@ -3356,7 +3407,7 @@ function captureTemplatePrelude(pattern, targetTemplate) {
 
 function normalizeMitmRulePattern(rule) {
   const next = { ...rule };
-  next.pattern = normalizeQueryBoundary(next.pattern);
+  next.pattern = rule.loonV2 ? rule.pattern : normalizeQueryBoundary(next.pattern);
   return next;
 }
 
@@ -3634,7 +3685,7 @@ function generalizeGroupedHostPattern(pattern, hostnameSet) {
 function mergeSameGateScripts(rules, diagnostics) {
   const groups = new Map();
   for (const rule of rules) {
-    if (rule.op !== 100 || !rule.scriptSource) continue;
+    if (rule.op !== 100 || !rule.scriptSource || rule.loonHTTP) continue;
     const key = `${rule.phase}\u001f${rule.pattern}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(rule);
@@ -3659,7 +3710,7 @@ function mergeSameGateScripts(rules, diagnostics) {
 function mergeIdenticalScriptSourcesByPhase(rules, diagnostics) {
   const groups = new Map();
   for (const rule of rules) {
-    if (rule.op !== 100 || !rule.scriptSource || rule.noScriptMerge) continue;
+    if (rule.op !== 100 || !rule.scriptSource || rule.noScriptMerge || rule.loonHTTP) continue;
     const key = `${rule.phase}\u001f${rule.scriptSource}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(rule);
@@ -3691,9 +3742,10 @@ function mergeScriptDispatchersByPhase(rules, diagnostics) {
   }
   for (const group of groups.values()) {
     if (group.length < 2) continue;
-    const union = unionRegexPattern(group.map((rule) => rule.pattern));
+    const patterns = group.map((rule) => rule.pattern);
+    const union = new Set(patterns).size === 1 ? patterns[0] : unionRegexPattern(patterns);
     if (!union) continue;
-    const composed = composeGatedProcessScripts(group.map((rule) => ({ pattern: rule.pattern, source: rule.scriptSource })));
+    const composed = composeGatedProcessScripts(group.map((rule) => ({ pattern: rule.pattern, source: rule.scriptSource, loonHTTP: rule.loonHTTP, loonGuard: rule.loonGuard })));
     group[0].pattern = union;
     group[0].scriptSource = composed;
     group[0].fields = [base64(composed)];
@@ -3767,8 +3819,10 @@ function composeGatedProcessScripts(items) {
     }
     return renameProcess(item.source, `__anywhere_part_${index}`);
   });
-  const calls = items.map((item, index) => `  if ((new RegExp(${JSON.stringify(item.pattern)})).test(url)) await __anywhere_part_${index}(ctx);`).join("\n");
-  return `${parts.join("\n\n")}\n\nasync function process(ctx) {\n  var url = ctx.url || "";\n${calls}\n}`;
+  const calls = items.map((item, index) => item.loonHTTP
+    ? `  if (!__loonSelected && (new RegExp(${JSON.stringify(item.pattern)})).test(url) && (${item.loonGuard || "true"})) { __loonSelected = true; await __anywhere_part_${index}(ctx); }`
+    : `  if ((new RegExp(${JSON.stringify(item.pattern)})).test(url)) await __anywhere_part_${index}(ctx);`).join("\n");
+  return `${parts.join("\n\n")}\n\nasync function process(ctx) {\n  var url = ctx.url || "", __loonSelected = false;\n${calls}\n}`;
 }
 
 function renameProcess(source, name) {
@@ -3865,7 +3919,9 @@ function validateAmrsRuleLine(line) {
   if (![0, 1].includes(phase)) return { level: "error", code: "invalid-phase", message: "phase 必须是 0 或 1。" };
   if (!MITM_OPS.has(op)) return { level: "error", code: "invalid-op", message: `不支持 op=${fields[1]}。` };
   try {
-    new RegExp(fields[2]);
+    const nativePattern = fields[2].replace(/^\(\?([ims]+)\)/, "");
+    const nativeFlags = fields[2].match(/^\(\?([ims]+)\)/)?.[1] || "";
+    new RegExp(nativePattern, nativeFlags);
   } catch (error) {
     return { level: "error", code: "invalid-regex", message: error.message };
   }

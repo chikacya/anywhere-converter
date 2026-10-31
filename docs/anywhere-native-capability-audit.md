@@ -31,7 +31,7 @@ This table is maintained against Anywhere source, not automatically generated. O
 
 Response ctx has response headers/body, not the original request headers/body. Compatibility objects must not substitute the former for the latter. Native header-replace does not insert missing fields; static JS header assignment uses delete then add. Ordered MITM mutations must not be globally deduplicated. QX support follows the same native contracts; see [compatibility scope](qx-compatibility.md).
 
-Plugin conversion now defaults to `.amod`, with plain rule sets remaining ARRS and explicit standalone output available. Native model encoding estimates replace per-rule padding; see [module output](module-output.md) for budget and subscription behavior. URL/timers are not native globals: common HTTP(S) URL operations are shimmed, genuine delays are not fabricated. Native JSON preserves precision/unchanged text differently from JS; sample-required diagnostics remain. See [review](review-20261010.md).
+Plugin conversion now defaults to `.amod`, with plain rule sets remaining ARRS and explicit standalone output available. Native model encoding estimates replace per-rule padding; see [module output](module-output.md) for budget and subscription behavior. URL/timers are not native globals: common HTTP(S) URL operations are shimmed, genuine delays are not fabricated. Native JSON preserves precision/unchanged text differently from JS; sample-required diagnostics remain.
 
 - The converter does not translate arbitrary `crypto.subtle` workflows into `Anywhere.crypto`.
 - The converter does not translate generic protobuf bundles into field-level native edits.

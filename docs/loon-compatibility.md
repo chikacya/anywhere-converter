@@ -44,4 +44,4 @@
 
 本地示例和原生 Swift 解析/编码对照位于忽略目录 `local-verification/20261031/loon/`，不上传第三方远程脚本或新增 fixtures。真实 iPhone / Loon 对照和生产 Worker 部署不属于本轮已验证结果。
 
-同日补充真实 LPX 检查见 [fmz200/Beta 验证报告](review-20261031-fmz.md)。修复了脚本外层筛选丢失 `/i` 和原生 Header 合并嵌入多处 `(?i)` 的问题；同 flags 统一前置，不同 flags 不强行合并。
+脚本外层筛选保留 `/i` 语义；原生 Header 合并时，同 flags 统一前置，不同 flags 不强行合并。

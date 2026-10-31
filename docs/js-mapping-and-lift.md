@@ -1,6 +1,6 @@
 # JavaScript Mapping and Native Lift
 
-2026-10-10：以当前 Anywhere 源码、[模式说明](conversion-modes.md)和[验证报告](review-20261010.md)为准。
+以当前 Anywhere 源码和[模式说明](conversion-modes.md)为准。
 
 ## 完整脚本检查
 
